@@ -290,6 +290,22 @@ class TextInputCard(SettingCard):
             self.value_changed.emit(text)
 
 
+class HAUrlInputCard(UrlInputCard):
+    """URL input card that tests a Home Assistant /api/ endpoint instead of Ollama."""
+
+    def _test_connection(self):
+        url = self.url_input.text().strip()
+        if not url:
+            return
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("...")
+        self.tester = ConnectionTester(url.rstrip("/") + "/api/")
+        self.tester.success.connect(self._on_test_success)
+        self.tester.failed.connect(self._on_test_failed)
+        self.tester.finished.connect(self._on_test_done)
+        self.tester.start()
+
+
 class SettingsTab(ScrollArea):
     """
     Comprehensive Settings Tab with model selection and preferences.
@@ -391,6 +407,41 @@ class SettingsTab(ScrollArea):
         self.connection_group.addSettingCard(self.ollama_url_card)
         
         self.expandLayout.addWidget(self.connection_group)
+
+        # ─────────────────────────────────────────────────────────────
+        # Home Assistant Group
+        # ─────────────────────────────────────────────────────────────
+        self.ha_group = SettingCardGroup("Home Assistant", self.scrollWidget)
+
+        self.ha_enabled_card = SwitchCard(
+            FIF.WIFI,
+            "Enable Home Assistant",
+            "Use HA as primary smart home backend (priority over Kasa)",
+            "home_assistant.enabled",
+            self.ha_group
+        )
+        self.ha_group.addSettingCard(self.ha_enabled_card)
+
+        self.ha_url_card = HAUrlInputCard(
+            FIF.LINK,
+            "Home Assistant URL",
+            "e.g. http://homeassistant.local:8123",
+            "home_assistant.url",
+            self.ha_group
+        )
+        self.ha_group.addSettingCard(self.ha_url_card)
+
+        self.ha_token_card = TextInputCard(
+            FIF.EDIT,
+            "Long-lived Token",
+            "Bearer token from your HA profile page",
+            "home_assistant.token",
+            "eyJ0eXAiOiJKV1Q...",
+            self.ha_group
+        )
+        self.ha_group.addSettingCard(self.ha_token_card)
+
+        self.expandLayout.addWidget(self.ha_group)
 
         # ─────────────────────────────────────────────────────────────
         # Voice & Audio Group

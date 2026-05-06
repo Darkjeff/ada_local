@@ -35,6 +35,11 @@ DEFAULT_SETTINGS = {
         "latitude": 40.7128,
         "longitude": -74.0060,
         "city": "New York, NY"
+    },
+    "home_assistant": {
+        "url": "",
+        "token": "",
+        "enabled": False
     }
 }
 

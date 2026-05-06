@@ -44,6 +44,7 @@ class FunctionExecutor:
         self.task_manager = None
         self.calendar_manager = None
         self.kasa_manager = None
+        self.ha_manager = None
         self.weather_manager = None
         self.news_manager = None
         
@@ -73,6 +74,12 @@ class FunctionExecutor:
             self.kasa_manager = kasa_manager
         except Exception as e:
             print(f"[FunctionExecutor] KasaManager init failed: {e}")
+
+        try:
+            from core.ha_control import ha_manager
+            self.ha_manager = ha_manager
+        except Exception as e:
+            print(f"[FunctionExecutor] HAManager init failed: {e}")
         
         try:
             from core.weather import WeatherManager
@@ -133,7 +140,66 @@ class FunctionExecutor:
         device_name = params.get("device_name", "light")
         brightness = params.get("brightness")
         color = params.get("color")
-        
+
+        # --- HA priority: synchronous, returns early if HA handles the request ---
+        if (self.ha_manager
+                and self.ha_manager.is_connected
+                and self.ha_manager.entities):
+
+            device_name_lower = device_name.lower()
+            target_ids = []
+            target_names = []
+
+            if device_name_lower in ("all", "lights", "light", "everything"):
+                for eid, info in self.ha_manager.entities.items():
+                    target_ids.append(eid)
+                    target_names.append(info.get("attributes", {}).get("friendly_name", eid))
+            else:
+                for eid, info in self.ha_manager.entities.items():
+                    friendly = info.get("attributes", {}).get("friendly_name", "").lower()
+                    if device_name_lower in friendly or friendly in device_name_lower:
+                        target_ids.append(eid)
+                        target_names.append(info.get("attributes", {}).get("friendly_name", eid))
+
+            if target_ids:
+                ha_colors = {
+                    "red": [255, 0, 0], "orange": [255, 165, 0], "yellow": [255, 255, 0],
+                    "green": [0, 255, 0], "cyan": [0, 255, 255], "blue": [0, 0, 255],
+                    "purple": [128, 0, 128], "pink": [255, 192, 203], "white": [255, 255, 255],
+                    "warm white": [255, 200, 150], "warm": [255, 200, 150],
+                    "cool white": [220, 220, 255], "soft white": [255, 220, 180],
+                }
+                results = []
+                for i, eid in enumerate(target_ids):
+                    name = target_names[i]
+                    success = False
+                    if action == "on":
+                        if color:
+                            rgb = ha_colors.get(color.lower())
+                            success = (self.ha_manager.turn_on(eid, rgb_color=rgb)
+                                       if rgb else self.ha_manager.turn_on(eid))
+                        else:
+                            success = self.ha_manager.turn_on(eid)
+                    elif action == "off":
+                        success = self.ha_manager.turn_off(eid)
+                    elif action == "dim" and brightness is not None:
+                        success = self.ha_manager.turn_on(eid, brightness_pct=brightness)
+                    elif action == "toggle":
+                        state = self.ha_manager.get_state(eid).get("state", "off")
+                        success = (self.ha_manager.turn_off(eid)
+                                   if state == "on" else self.ha_manager.turn_on(eid))
+                    if success:
+                        results.append(f"{action} {name}")
+
+                if results:
+                    return {
+                        "success": True,
+                        "message": ", ".join(results),
+                        "data": {"device": device_name, "action": action, "targets": target_names}
+                    }
+            # No HA match — fall through to Kasa
+
+        # --- existing Kasa logic unchanged below ---
         if not self.kasa_manager:
             return {"success": False, "message": "Kasa manager not available", "data": None}
         
