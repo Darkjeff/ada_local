@@ -1,7 +1,7 @@
 """
 TTS (Text-to-Speech) module using Piper TTS executable.
 Provides streaming sentence-based synthesis with interrupt support.
-Uses pre-built Piper Windows executable for full Windows compatibility.
+Supports Windows (piper.exe) and Linux (piper) via platform detection.
 """
 
 import io
@@ -10,8 +10,10 @@ import re
 import queue
 import shutil
 import subprocess
+import tarfile
 import threading
 import zipfile
+import platform
 import requests
 from pathlib import Path
 
@@ -69,9 +71,7 @@ class PiperTTS:
     MODEL_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/northern_english_male/medium/en_GB-northern_english_male-medium.onnx"
     CONFIG_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/northern_english_male/medium/en_GB-northern_english_male-medium.onnx.json"
     
-    # Piper Windows executable
     PIPER_VERSION = "2023.11.14-2"
-    PIPER_RELEASE_URL = f"https://github.com/rhasspy/piper/releases/download/{PIPER_VERSION}/piper_windows_amd64.zip"
     
     def __init__(self):
         self.enabled = False
@@ -86,55 +86,79 @@ class PiperTTS:
         self.current_process = None
         self.available = True  # We'll check during initialize
     
+    def _get_piper_release_info(self):
+        """Return (download_url, subdir, exe_name, archive_type) for the current OS/arch."""
+        system = platform.system()
+        machine = platform.machine().lower()
+        base = f"https://github.com/rhasspy/piper/releases/download/{self.PIPER_VERSION}"
+
+        if system == "Windows":
+            return (f"{base}/piper_windows_amd64.zip", "piper_windows", "piper.exe", "zip")
+        elif system == "Linux":
+            arch = "aarch64" if ("aarch64" in machine or "arm64" in machine) else "x86_64"
+            return (f"{base}/piper_linux_{arch}.tar.gz", "piper_linux", "piper", "tar")
+        else:
+            raise RuntimeError(f"[TTS] Unsupported OS: {system}")
+
     def _download_piper_executable(self):
-        """Download and extract Piper Windows executable."""
-        piper_exe_dir = self.piper_dir / "piper_windows"
-        piper_exe = piper_exe_dir / "piper.exe"
-        
+        """Download and extract Piper executable for the current OS."""
+        release_url, exe_subdir, exe_name, archive_type = self._get_piper_release_info()
+
+        piper_exe_dir = self.piper_dir / exe_subdir
+        piper_exe = piper_exe_dir / exe_name
+
         if piper_exe.exists():
             print(f"{GREEN}[TTS] ✓ Piper executable found{RESET}")
             return str(piper_exe)
-        
-        print(f"{CYAN}[TTS] Downloading Piper executable...{RESET}")
+
+        print(f"{CYAN}[TTS] Downloading Piper executable ({platform.system()})...{RESET}")
         self.piper_dir.mkdir(parents=True, exist_ok=True)
-        
+
         try:
-            r = http_session.get(self.PIPER_RELEASE_URL, stream=True)
+            r = http_session.get(release_url, stream=True)
             r.raise_for_status()
-            
-            # Download to memory and extract
-            zip_data = io.BytesIO()
+
+            archive_data = io.BytesIO()
             total_size = int(r.headers.get('content-length', 0))
             downloaded = 0
-            
+
             for chunk in r.iter_content(chunk_size=8192):
-                zip_data.write(chunk)
+                archive_data.write(chunk)
                 downloaded += len(chunk)
                 if total_size > 0:
                     pct = (downloaded / total_size) * 100
                     print(f"\r{CYAN}[TTS] Downloading... {pct:.1f}%{RESET}", end="", flush=True)
-            
-            print()  # New line after download
-            
-            # Extract zip
-            zip_data.seek(0)
-            with zipfile.ZipFile(zip_data, 'r') as zf:
-                # Extract to piper_windows directory
-                piper_exe_dir.mkdir(parents=True, exist_ok=True)
-                for member in zf.namelist():
-                    # Extract files, stripping the top-level piper directory
-                    if member.startswith("piper/"):
-                        target_path = piper_exe_dir / member[6:]  # Remove "piper/" prefix
-                        if member.endswith('/'):
-                            target_path.mkdir(parents=True, exist_ok=True)
-                        else:
-                            target_path.parent.mkdir(parents=True, exist_ok=True)
-                            with zf.open(member) as src, open(target_path, 'wb') as dst:
-                                dst.write(src.read())
-            
+
+            print()
+            archive_data.seek(0)
+            piper_exe_dir.mkdir(parents=True, exist_ok=True)
+
+            if archive_type == "zip":
+                with zipfile.ZipFile(archive_data, 'r') as zf:
+                    for member in zf.namelist():
+                        if member.startswith("piper/"):
+                            target_path = piper_exe_dir / member[6:]
+                            if member.endswith('/'):
+                                target_path.mkdir(parents=True, exist_ok=True)
+                            else:
+                                target_path.parent.mkdir(parents=True, exist_ok=True)
+                                with zf.open(member) as src, open(target_path, 'wb') as dst:
+                                    dst.write(src.read())
+            elif archive_type == "tar":
+                with tarfile.open(fileobj=archive_data, mode='r:gz') as tf:
+                    for member in tf.getmembers():
+                        if member.name.startswith("piper/"):
+                            member.name = member.name[6:]  # strip "piper/" prefix
+                            if member.name:
+                                tf.extract(member, path=str(piper_exe_dir))
+
+            # Ensure the Linux binary is executable
+            if platform.system() == "Linux" and piper_exe.exists():
+                piper_exe.chmod(piper_exe.stat().st_mode | 0o111)
+
             print(f"{GREEN}[TTS] ✓ Piper executable extracted!{RESET}")
             return str(piper_exe)
-            
+
         except Exception as e:
             print(f"{YELLOW}[TTS] Failed to download Piper executable: {e}{RESET}")
             return None

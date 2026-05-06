@@ -189,6 +189,17 @@ class HADataFetchThread(QThread):
             self.entities_found.emit({})
 
 
+class HASensorsDataFetchThread(QThread):
+    """Fetches HA sensor and binary_sensor entities."""
+    entities_found = Signal(dict)
+
+    def run(self):
+        try:
+            self.entities_found.emit(ha_manager.get_sensor_entities())
+        except Exception:
+            self.entities_found.emit({})
+
+
 class HAActionThread(QThread):
     """Executes a single HA action."""
     finished = Signal(bool)
@@ -213,7 +224,85 @@ class HAActionThread(QThread):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# HA Entity Card
+# HA Sensor Card (read-only)
+# ══════════════════════════════════════════════════════════════════════
+
+class HASensorCard(QFrame):
+    """Read-only card displaying the current state of a sensor/binary_sensor."""
+
+    def __init__(self, entity_id: str, entity_info: dict, parent=None):
+        super().__init__(parent)
+        self.entity_id = entity_id
+        self.domain = entity_id.split(".")[0]
+        attrs = entity_info.get("attributes", {})
+        self.friendly_name = attrs.get("friendly_name", entity_id)
+        self.state = entity_info.get("state", "unknown")
+        unit = attrs.get("unit_of_measurement", "")
+
+        self.setFixedSize(300, 160)
+        self.setStyleSheet("""
+            HASensorCard {
+                background-color: #1a2236;
+                border: 1px solid #2a3556;
+                border-radius: 20px;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Header: icon only (no control)
+        header = QHBoxLayout()
+        icon_box = QFrame()
+        icon_box.setFixedSize(40, 40)
+        icon_box.setStyleSheet("background-color: #232d45; border-radius: 12px;")
+        ib_layout = QVBoxLayout(icon_box)
+        ib_layout.setAlignment(Qt.AlignCenter)
+        ib_layout.setContentsMargins(0, 0, 0, 0)
+        iw = IconWidget(FIF.INFO)
+        iw.setFixedSize(20, 20)
+        ib_layout.addWidget(iw)
+        header.addWidget(icon_box)
+        header.addStretch()
+
+        read_label = QLabel("READ ONLY")
+        read_label.setStyleSheet(
+            "color: #6e7a8e; font-size: 10px; font-weight: bold; background: transparent;"
+        )
+        header.addWidget(read_label)
+        layout.addLayout(header)
+
+        name_label = QLabel(self.friendly_name)
+        name_label.setStyleSheet(
+            "color: white; font-weight: bold; font-size: 14px; background: transparent;"
+        )
+        name_label.setWordWrap(True)
+        layout.addWidget(name_label)
+
+        domain_label = QLabel(self.domain.upper().replace("_", " "))
+        domain_label.setStyleSheet(
+            "color: #6e7a8e; font-size: 10px; font-weight: bold; background: transparent;"
+        )
+        layout.addWidget(domain_label)
+
+        # State value — colored by domain/state
+        if self.domain == "binary_sensor":
+            is_on = self.state == "on"
+            color = "#4CAF50" if is_on else "#6e7a8e"
+            display = "ON" if is_on else "OFF"
+        else:
+            color = "#33b5e5"
+            display = f"{self.state} {unit}".strip()
+
+        state_label = QLabel(display)
+        state_label.setStyleSheet(
+            f"color: {color}; font-size: 18px; font-weight: bold; background: transparent;"
+        )
+        layout.addWidget(state_label)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HA Entity Card (controllable)
 # ══════════════════════════════════════════════════════════════════════
 
 _DOMAIN_ICONS = {
@@ -666,6 +755,124 @@ class HATab(QWidget):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Home Assistant Sensors sub-tab (read-only)
+# ══════════════════════════════════════════════════════════════════════
+
+class HASensorTab(QWidget):
+    """Read-only grid of HA sensor and binary_sensor entities."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._main_layout = QVBoxLayout(self)
+        self._main_layout.setContentsMargins(0, 20, 0, 0)
+        self._content = None
+        self._check_and_load()
+
+    def _check_and_load(self):
+        url = settings.get("home_assistant.url", "")
+        enabled = settings.get("home_assistant.enabled", False)
+        if not url or not enabled:
+            self._show_message("Home Assistant is not configured.", "#6e7a8e")
+            return
+        if not ha_manager.is_connected:
+            self._show_message("● Disconnected — refresh to retry.", "#f44336")
+            return
+        self._show_message("● Loading sensors...", "#6e7a8e")
+        self.fetch_thread = HASensorsDataFetchThread()
+        self.fetch_thread.entities_found.connect(self._on_sensors_loaded)
+        self.fetch_thread.start()
+
+    def refresh(self):
+        self._clear_content()
+        self._check_and_load()
+
+    def _clear_content(self):
+        if self._content is not None:
+            self._main_layout.removeWidget(self._content)
+            self._content.deleteLater()
+            self._content = None
+
+    def _show_message(self, text: str, color: str):
+        self._clear_content()
+        w = QLabel(text)
+        w.setAlignment(Qt.AlignCenter)
+        w.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: bold;")
+        self._content = w
+        self._main_layout.addWidget(w)
+
+    def _on_sensors_loaded(self, entities: dict):
+        if not entities:
+            self._show_message("No sensors found.", "#6e7a8e")
+            return
+
+        self._clear_content()
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        # Filter buttons: All / Sensor / Binary Sensor
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(15)
+        self._sensor_entities = list(entities.values())
+        self._sensor_groups = {
+            "sensor":        [e for e in self._sensor_entities if e["entity_id"].startswith("sensor.")],
+            "binary_sensor": [e for e in self._sensor_entities if e["entity_id"].startswith("binary_sensor.")],
+        }
+        for i, label in enumerate(["All", "Sensor", "Binary Sensor"]):
+            key = label.lower().replace(" ", "_")
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(i == 0)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1a2236; color: #6e7a8e;
+                    border-radius: 15px; padding: 8px 20px; border: none; font-weight: bold;
+                }
+                QPushButton:checked { background-color: #33b5e5; color: #0f1524; }
+                QPushButton:hover   { background-color: #232d45; }
+            """)
+            btn.clicked.connect(lambda _, k=key: self._filter_grid(k))
+            filter_row.addWidget(btn)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        self._grid_widget = QWidget()
+        self._grid_widget.setStyleSheet("background: transparent;")
+        self._grid_layout = QGridLayout(self._grid_widget)
+        self._grid_layout.setSpacing(20)
+        self._grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        scroll.setWidget(self._grid_widget)
+        layout.addWidget(scroll)
+
+        self._content = w
+        self._main_layout.addWidget(w)
+        self._filter_grid("all")
+
+    def _filter_grid(self, key: str):
+        for i in reversed(range(self._grid_layout.count())):
+            self._grid_layout.itemAt(i).widget().setParent(None)
+
+        if key == "all":
+            items = self._sensor_entities
+        else:
+            items = self._sensor_groups.get(key, [])
+
+        row = col = 0
+        for e in items:
+            card = HASensorCard(e["entity_id"], e)
+            self._grid_layout.addWidget(card, row, col)
+            col += 1
+            if col >= 3:
+                col = 0
+                row += 1
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Main tab (entry point used by app.py)
 # ══════════════════════════════════════════════════════════════════════
 
@@ -710,10 +917,12 @@ class HomeAutomationTab(QWidget):
 
         self.kasa_tab = KasaTab(self)
         self.ha_tab = HATab(self)
+        self.ha_sensors_tab = HASensorTab(self)
         self.ha_tab.navigate_to_settings.connect(self.navigate_to_settings)
 
         self.tab_widget.addTab(self.kasa_tab, "Kasa")
         self.tab_widget.addTab(self.ha_tab, "Home Assistant")
+        self.tab_widget.addTab(self.ha_sensors_tab, "Sensors")
 
         main_layout.addWidget(self.tab_widget)
 
@@ -767,4 +976,5 @@ class HomeAutomationTab(QWidget):
     def _on_refresh(self):
         self.kasa_tab._load_devices()
         self.ha_tab.refresh()
+        self.ha_sensors_tab.refresh()
         self._start_badge_check()

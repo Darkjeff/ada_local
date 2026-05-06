@@ -9,6 +9,12 @@ from typing import Any
 from core.settings_store import settings
 
 
+CONTROLLABLE_DOMAINS = frozenset({
+    "light", "switch", "script", "scene", "media_player", "climate"
+})
+
+SENSOR_DOMAINS = frozenset({"sensor", "binary_sensor"})
+
 DOMAIN_SERVICES = {
     "light":        ("light/turn_on",            "light/turn_off"),
     "switch":       ("switch/turn_on",           "switch/turn_off"),
@@ -27,6 +33,7 @@ class HAManager:
 
     def __init__(self):
         self.entities: dict[str, Any] = {}
+        self._raw_entities: dict[str, Any] = {}
         self._connected: bool = False
         self._url: str = ""
         self._token: str = ""
@@ -83,10 +90,11 @@ class HAManager:
     # Entity discovery                                                     #
     # ------------------------------------------------------------------ #
 
-    def get_entities(self) -> dict[str, Any]:
+    def _fetch_all_states(self) -> dict[str, Any]:
         """
-        GET /api/states — returns all entities keyed by entity_id.
-        Caches result in self.entities.
+        GET /api/states — caches full result in self._raw_entities.
+        Called internally; avoids duplicate HTTP calls when both
+        get_entities() and get_sensor_entities() are used together.
         """
         if not self._url or not self._token:
             return {}
@@ -97,15 +105,38 @@ class HAManager:
                 timeout=5,
             )
             if resp.status_code != 200:
-                print(f"[HAManager] get_entities HTTP {resp.status_code}")
+                print(f"[HAManager] _fetch_all_states HTTP {resp.status_code}")
                 return {}
-
             raw: list = resp.json()
-            self.entities = {item["entity_id"]: item for item in raw}
-            return self.entities
+            self._raw_entities = {item["entity_id"]: item for item in raw}
+            return self._raw_entities
         except Exception as e:
-            print(f"[HAManager] get_entities failed: {e}")
+            print(f"[HAManager] _fetch_all_states failed: {e}")
             return {}
+
+    def get_entities(self) -> dict[str, Any]:
+        """
+        Returns controllable entities only (light, switch, script, scene,
+        media_player, climate). Populates _raw_entities cache as a side effect
+        so get_sensor_entities() avoids a second HTTP call.
+        """
+        all_e = self._fetch_all_states()
+        self.entities = {
+            eid: info for eid, info in all_e.items()
+            if eid.split(".")[0] in CONTROLLABLE_DOMAINS
+        }
+        return self.entities
+
+    def get_sensor_entities(self) -> dict[str, Any]:
+        """
+        Returns sensor and binary_sensor entities (read-only).
+        Reuses the _raw_entities cache if already populated by get_entities().
+        """
+        raw = self._raw_entities or self._fetch_all_states()
+        return {
+            eid: info for eid, info in raw.items()
+            if eid.split(".")[0] in SENSOR_DOMAINS
+        }
 
     def get_state(self, entity_id: str) -> dict:
         """GET /api/states/{entity_id} — returns entity state dict or {}."""
