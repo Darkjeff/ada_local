@@ -55,6 +55,7 @@ paramiko>=3.0.0                # SSH client for K1 printer control
 # -----------------------------------------------------
 requests>=2.32.0               # HTTP requests for API calls
 duckduckgo-search>=8.0.0       # DuckDuckGo search API (provides DDGS class)
+feedparser>=6.0.0              # RSS/Atom feed parsing for news fetching
 httpx>=0.28.0                  # Async HTTP client
 
 # -----------------------------------------------------
