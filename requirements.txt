@@ -48,6 +48,7 @@ playwright-stealth>=2.0.0      # Stealth mode for browser automation
 # Smart Home Control
 # -----------------------------------------------------
 python-kasa>=0.10.0            # TP-Link Kasa smart device control
+paramiko>=3.0.0                # SSH client for K1 printer control
 
 # -----------------------------------------------------
 # Web & API Integrations

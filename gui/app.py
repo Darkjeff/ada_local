@@ -28,6 +28,7 @@ from gui.tabs.settings import SettingsTab
 from gui.tabs.briefing import BriefingView
 from gui.tabs.browser import BrowserTab
 from gui.tabs.home_automation import HomeAutomationTab
+from gui.tabs.printers import PrintersTab
 from gui.components.system_monitor import SystemMonitor
 from gui.components.voice_indicator import VoiceIndicator
 from core.llm import preload_models
@@ -214,12 +215,14 @@ class MainWindow(FluentWindow):
 
         self.home_lazy = LazyTab(HomeAutomationTab, "homeInterface")
         self.browser_lazy = LazyTab(BrowserTab, "browserInterface")
-        
+        self.printers_lazy = LazyTab(PrintersTab, "printersInterface")
+
         self.addSubInterface(self.chat_lazy, FIF.CHAT, "Chat")
         self.addSubInterface(self.planner_lazy, FIF.CALENDAR, "Planner")
         self.addSubInterface(self.briefing_view, FIF.DATE_TIME, "Briefing")
         self.addSubInterface(self.home_lazy, FIF.HOME, "Home Auto")
         self.addSubInterface(self.browser_lazy, FIF.GLOBE, "Web Agent")
+        self.addSubInterface(self.printers_lazy, FIF.TILES, "Printers")
         
         # Settings at bottom
         self.settings_lazy = LazyTab(SettingsTab, "settingsInterface")
@@ -299,6 +302,8 @@ class MainWindow(FluentWindow):
                 self.home_tab = real_widget
             elif obj_name == "browserInterface":
                 # No signals to connect for browser yet
+                pass
+            elif obj_name == "printersInterface":
                 pass
                 
         self.set_status("Ready")

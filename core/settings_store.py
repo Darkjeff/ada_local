@@ -40,6 +40,10 @@ DEFAULT_SETTINGS = {
         "url": "",
         "token": "",
         "enabled": False
+    },
+    "k1": {
+        "ip": "",
+        "password": ""
     }
 }
 
