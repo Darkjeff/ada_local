@@ -391,7 +391,7 @@ class HAEntityCard(QFrame):
         layout.addWidget(domain_label)
 
         if self.domain == "light" and self.supports_brightness:
-            brightness_raw = attrs.get("brightness", 255)
+            brightness_raw = attrs.get("brightness") or 255
             brightness_pct = int(brightness_raw / 255 * 100)
             self.slider = Slider(Qt.Horizontal)
             self.slider.setRange(0, 100)
@@ -718,12 +718,12 @@ class HATab(QWidget):
 
     def _categorize(self, entities: list) -> dict:
         keywords = {
-            "Office":      ["office", "desk", "work", "pc", "monitor"],
-            "Living Room": ["living", "sofa", "tv", "lounge", "salon"],
-            "Kitchen":     ["kitchen", "dining", "cook", "oven", "cuisine"],
-            "Bedroom":     ["bed", "sleep", "night", "chambre"],
-            "Exterior":    ["exterior", "garden", "patio", "porch", "garage", "exterieur"],
-            "Hallway":     ["hall", "corridor", "stairs", "couloir"],
+            "Bureau":      ["bureau", "office", "desk", "work", "pc", "monitor", "etagere"],
+            "Salon":       ["salon", "living", "sofa", "tv", "lounge", "sejour"],
+            "Cuisine":     ["cuisine", "kitchen", "dining", "cook", "oven", "cafe", "cafetiere"],
+            "Chambre":     ["chambre", "bedroom", "bed", "sleep", "night", "nuit"],
+            "Extérieur":   ["exterieur", "exterior", "garden", "jardin", "patio", "porch", "garage"],
+            "Couloir":     ["couloir", "hall", "corridor", "stairs", "entree"],
         }
         groups: dict = {}
         for e in entities:
