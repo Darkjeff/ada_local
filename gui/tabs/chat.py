@@ -1,9 +1,9 @@
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, 
+    QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QListWidgetItem, QSizePolicy, QMenu
 )
-from PySide6.QtCore import Qt, QSize, QTimer, Signal
-from PySide6.QtGui import QFont, QIcon, QColor
+from PySide6.QtCore import Qt, QSize, QTimer, Signal, QThread
+from PySide6.QtGui import QFont, QIcon, QColor, QPixmap
 
 from qfluentwidgets import (
     PrimaryPushButton, PushButton, TransparentToolButton,
@@ -29,7 +29,8 @@ class ChatTab(QWidget):
     tts_toggled = Signal(bool)
     new_chat_requested = Signal()
     session_selected = Signal(str)
-    
+    vision_requested = Signal()
+
     # Session handling signals
     session_pin_requested = Signal(str)
     session_rename_requested = Signal(str, str)
@@ -130,6 +131,11 @@ class ChatTab(QWidget):
         self.user_input.setFixedHeight(40)
         input_layout.addWidget(self.user_input, 1)
 
+        self.camera_btn = TransparentToolButton(FIF.CAMERA, self)
+        self.camera_btn.setToolTip("Capturer & décrire (vision)")
+        self.camera_btn.setFixedSize(40, 40)
+        input_layout.addWidget(self.camera_btn)
+
         self.stop_btn = PrimaryPushButton(FIF.CLOSE, "Stop")
         self.stop_btn.setVisible(False)
         self.stop_btn.setFixedWidth(100)
@@ -151,6 +157,28 @@ class ChatTab(QWidget):
         self.stop_btn.clicked.connect(self.stop_generation_requested.emit)
         self.tts_toggle.checkedChanged.connect(self.tts_toggled.emit)
         self.session_list.itemClicked.connect(self._on_session_clicked)
+        self.camera_btn.clicked.connect(self._on_camera_clicked)
+
+    def _on_camera_clicked(self):
+        self.camera_btn.setEnabled(False)
+        self.set_status("📷 Capture en cours…")
+        self._vision_thread = _VisionThread()
+        self._vision_thread.done.connect(self._on_vision_done)
+        self._vision_thread.start()
+
+    def _on_vision_done(self, result: dict):
+        self.camera_btn.setEnabled(True)
+        self.set_status("Ready")
+        description = result.get("description", "")
+        img_b64 = result.get("image_b64")
+
+        # Show captured image as user "message" (pixmap label)
+        if img_b64:
+            self._add_vision_preview(img_b64)
+
+        # Show description as assistant bubble
+        if description:
+            self.add_message_bubble("assistant", description)
 
     def _on_send_clicked(self):
         text = self.user_input.text()
@@ -280,8 +308,48 @@ class ChatTab(QWidget):
         menu.exec(self.session_list.mapToGlobal(position))
 
     def _prompt_rename(self, session_id):
-        # We can implement a custom dialog later, for now standard input
         from PySide6.QtWidgets import QInputDialog
         new_title, ok = QInputDialog.getText(self, "Rename Chat", "Enter new name:")
         if ok and new_title.strip():
             self.session_rename_requested.emit(session_id, new_title.strip())
+
+    def _add_vision_preview(self, img_b64: str):
+        """Show a small preview of the captured webcam image in the chat."""
+        try:
+            import base64
+            raw = base64.b64decode(img_b64)
+            pixmap = QPixmap()
+            pixmap.loadFromData(raw)
+            if pixmap.isNull():
+                return
+            pixmap = pixmap.scaledToWidth(320, Qt.SmoothTransformation)
+
+            lbl = QLabel()
+            lbl.setPixmap(pixmap)
+            lbl.setStyleSheet("border-radius: 8px;")
+
+            wrapper = QWidget()
+            wrapper.setStyleSheet("background: transparent;")
+            row = QHBoxLayout(wrapper)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addStretch()
+            row.addWidget(lbl)
+
+            count = self.chat_container_layout.count()
+            self.chat_container_layout.insertWidget(count - 1, wrapper)
+            QTimer.singleShot(50, self.scroll_to_bottom)
+        except Exception as e:
+            print(f"[ChatTab] Vision preview error: {e}")
+
+
+class _VisionThread(QThread):
+    """Background thread: capture webcam frame + ask gemma4 to describe it."""
+    done = Signal(dict)
+
+    def run(self):
+        try:
+            from core.vision import describe
+            result = describe()
+        except Exception as e:
+            result = {"success": False, "description": f"Erreur : {e}", "image_b64": None}
+        self.done.emit(result)

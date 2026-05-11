@@ -19,7 +19,7 @@ from pathlib import Path
 # which cause semaphore leaks and segfaults at Python shutdown.
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-VALID_ROUTES = {"qwen_basic", "qwen_thinking", "function_gemma", "cad_generation", "print_control"}
+VALID_ROUTES = {"qwen_basic", "qwen_thinking", "function_gemma", "cad_generation", "print_control", "vision"}
 
 _router = None
 
@@ -155,9 +155,22 @@ def _build_router():
         ],
     )
 
+    vision = Route(
+        name="vision",
+        utterances=[
+            "regarde", "qu'est-ce que tu vois", "décris ce que tu vois",
+            "que vois-tu", "regarde autour de toi", "observe",
+            "prends une photo", "capture une image", "montre-moi ce que tu vois",
+            "analyse l'image", "décris la scène",
+            "what do you see", "look around", "describe what you see",
+            "take a picture", "capture a frame", "look at this",
+            "what's in front of you", "describe the scene",
+        ],
+    )
+
     return SemanticRouter(
         encoder=encoder,
-        routes=[qwen_basic, qwen_thinking, function_gemma, cad_generation, print_control],
+        routes=[qwen_basic, qwen_thinking, function_gemma, cad_generation, print_control, vision],
         auto_sync="local",
     )
 

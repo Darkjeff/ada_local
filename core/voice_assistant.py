@@ -164,6 +164,11 @@ class VoiceAssistant(QObject):
                 self._stream_qwen_response(user_text, True)
                 return
 
+            if semantic == "vision":
+                print(f"{CYAN}[VoiceAssistant] → Vision{RESET}")
+                self._handle_vision(user_text)
+                return
+
             if semantic == "cad_generation":
                 # CAD model generation → CAD Agent (future)
                 print(f"{CYAN}[VoiceAssistant] → CAD Agent (not yet implemented){RESET}")
@@ -213,6 +218,28 @@ class VoiceAssistant(QObject):
             self.error_occurred.emit(error_msg)
             self.processing_finished.emit()
     
+    def _handle_vision(self, user_text: str):
+        """Capture webcam + describe via gemma4, then read aloud via Qwen."""
+        try:
+            from core.vision import describe
+            result = describe(prompt=user_text or "Décris ce que tu vois en détail.")
+            description = result.get("description", "")
+            if not description:
+                description = "Je ne peux pas accéder à la webcam."
+            # Speak the description directly via TTS
+            from core.tts import tts, SentenceBuffer
+            buf = SentenceBuffer()
+            sentences = buf.add(description)
+            for s in sentences:
+                tts.queue_sentence(s)
+            rem = buf.flush()
+            if rem:
+                tts.queue_sentence(rem)
+        except Exception as e:
+            print(f"{GRAY}[VoiceAssistant] Vision error: {e}{RESET}")
+        finally:
+            self.processing_finished.emit()
+
     def _handle_print_control(self, user_text: str):
         """Route printer-related queries to PrinterAgent via FunctionExecutor."""
         text_lower = user_text.lower()
