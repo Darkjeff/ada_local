@@ -120,6 +120,21 @@ FUNCTIONS = [
     {
         "type": "function",
         "function": {
+            "name": "shell_exec",
+            "description": "Execute a PowerShell or shell command on the local system. Use for: listing files, checking system info, running scripts, managing processes, checking network, installing packages, or any system operation the user requests explicitly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The PowerShell/shell command to execute"},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default 30, max 120)"}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "passthrough",
             "description": "DEFAULT FUNCTION - Use this whenever no other function is clearly needed. This is the fallback for: greetings (hello, hi, good morning), chitchat (how are you, what's your name), general knowledge questions, explanations, conversations, and ANY query that does NOT explicitly require controlling lights, setting timers, searching the web, or managing calendar events. When in doubt, use passthrough.",
             "parameters": {

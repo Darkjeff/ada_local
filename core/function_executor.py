@@ -7,6 +7,23 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 import threading
 import time
+import re
+import subprocess
+
+# Patterns that must never be executed regardless of context
+_SHELL_BLOCKLIST = [
+    r"format\s+[a-z]:",                      # disk format
+    r"rd\s+/s\s+/q\s+[a-z]:\\?$",           # recursive delete of drive root
+    r"rmdir\s+/s\s+/q\s+[a-z]:\\?$",
+    r"Remove-Item\s+-Recurse.*[a-z]:\\?$",   # PS recursive delete of drive root
+    r"del\s+/[fs].*\s+[a-z]:\\",            # del /f /s on drive root
+    r"shutdown\s+/[srh]",                    # system shutdown/restart/hibernate
+    r"net\s+user\s+administrator",           # privilege escalation
+    r"reg\s+delete\s+HKLM\\SYSTEM",         # critical registry deletion
+    r"bcdedit",                              # boot configuration
+    r"diskpart",                             # disk partitioning
+]
+_SHELL_BLOCKLIST_RE = [re.compile(p, re.IGNORECASE) for p in _SHELL_BLOCKLIST]
 
 from core.async_runner import run_async
 
@@ -126,6 +143,8 @@ class FunctionExecutor:
                 return self._add_task(params)
             elif func_name == "web_search":
                 return self._web_search(params)
+            elif func_name == "shell_exec":
+                return self._shell_exec(params)
             elif func_name == "get_system_info":
                 return self._get_system_info()
             elif func_name == "get_print_status":
@@ -713,6 +732,61 @@ class FunctionExecutor:
             "message": success_msg if ok else f"Failed to {action} print",
             "data": None,
         }
+
+
+    def _shell_exec(self, params: Dict) -> Dict:
+        """Execute a PowerShell command with safety checks."""
+        command = params.get("command", "").strip()
+        if not command:
+            return {"success": False, "message": "No command provided.", "data": None}
+
+        # Safety: block destructive patterns
+        for pattern in _SHELL_BLOCKLIST_RE:
+            if pattern.search(command):
+                return {
+                    "success": False,
+                    "message": f"Commande bloquée pour des raisons de sécurité : '{command}'",
+                    "data": None,
+                }
+
+        timeout = min(int(params.get("timeout", 30)), 120)
+
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="replace",
+            )
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
+            output = stdout or stderr or "(no output)"
+
+            # Truncate at 3000 chars to keep LLM context manageable
+            if len(output) > 3000:
+                output = output[:3000] + "\n… (output truncated)"
+
+            success = result.returncode == 0
+            return {
+                "success": success,
+                "message": output,
+                "data": {
+                    "command": command,
+                    "returncode": result.returncode,
+                    "stdout": stdout[:1500],
+                    "stderr": stderr[:500],
+                },
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "message": f"Commande interrompue après {timeout}s (timeout).",
+                "data": None,
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Erreur d'exécution : {e}", "data": None}
 
 
 # Global instance
