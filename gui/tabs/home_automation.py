@@ -388,11 +388,13 @@ class HACameraCard(QFrame):
         self._timer.start(5000)
 
     def _fetch_snapshot(self):
-        if hasattr(self, "_snap_thread") and self._snap_thread and self._snap_thread.isRunning():
-            return
+        try:
+            if hasattr(self, "_snap_thread") and self._snap_thread and self._snap_thread.isRunning():
+                return
+        except RuntimeError:
+            self._snap_thread = None
         self._snap_thread = HACameraSnapshotThread(self.entity_id)
         self._snap_thread.snapshot_ready.connect(self._on_snapshot)
-        self._snap_thread.finished.connect(self._snap_thread.deleteLater)
         self._snap_thread.start()
 
     def stop(self):
@@ -787,11 +789,13 @@ class HATab(QWidget):
 
     def _silent_refresh(self):
         """Refresh entity states without clearing the UI."""
-        if hasattr(self, "_silent_thread") and self._silent_thread and self._silent_thread.isRunning():
-            return
+        try:
+            if hasattr(self, "_silent_thread") and self._silent_thread and self._silent_thread.isRunning():
+                return
+        except RuntimeError:
+            self._silent_thread = None
         t = HADataFetchThread()
         t.entities_found.connect(self._on_silent_refresh)
-        t.finished.connect(t.deleteLater)
         t.start()
         self._silent_thread = t
 
