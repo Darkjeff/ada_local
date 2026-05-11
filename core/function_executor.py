@@ -2,12 +2,13 @@
 Function Executor - Executes Gemma-routed functions with actual backend calls.
 """
 
-import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 import threading
 import time
+
+from core.async_runner import run_async
 
 
 @dataclass
@@ -141,7 +142,7 @@ class FunctionExecutor:
     def _control_light(self, params: Dict) -> Dict:
         """Control smart lights via Kasa. Wrapper for async execution."""
         try:
-            return asyncio.run(self._async_control_light(params))
+            return run_async(self._async_control_light(params))
         except Exception as e:
             print(f"[FunctionExecutor] Light control failed: {e}")
             return {"success": False, "message": f"Light control failed: {e}", "data": None}
