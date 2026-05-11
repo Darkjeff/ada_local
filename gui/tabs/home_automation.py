@@ -388,9 +388,20 @@ class HACameraCard(QFrame):
         self._timer.start(5000)
 
     def _fetch_snapshot(self):
+        try:
+            if hasattr(self, "_snap_thread") and self._snap_thread and self._snap_thread.isRunning():
+                return
+        except RuntimeError:
+            self._snap_thread = None
         self._snap_thread = HACameraSnapshotThread(self.entity_id)
         self._snap_thread.snapshot_ready.connect(self._on_snapshot)
         self._snap_thread.start()
+
+    def stop(self):
+        self._timer.stop()
+        if hasattr(self, "_snap_thread") and self._snap_thread and self._snap_thread.isRunning():
+            self._snap_thread.quit()
+            self._snap_thread.wait(2000)
 
     def _on_snapshot(self, entity_id: str, data: bytes):
         pixmap = QPixmap()
@@ -633,12 +644,14 @@ class KasaTab(QWidget):
             self._load_devices()
 
     def _load_devices(self):
-        if hasattr(self, 'loader') and self.loader and self.loader.isRunning():
-            print("[HomeAutomation] Skipping - discovery already in progress")
-            return
+        try:
+            if hasattr(self, 'loader') and self.loader and self.loader.isRunning():
+                print("[HomeAutomation] Skipping - discovery already in progress")
+                return
+        except RuntimeError:
+            self.loader = None
         self.loader = DataFetchThread()
         self.loader.devices_found.connect(self._on_devices_loaded)
-        self.loader.finished.connect(self.loader.deleteLater)
         self.loader.start()
 
     def _on_devices_loaded(self, devices):
@@ -776,6 +789,11 @@ class HATab(QWidget):
 
     def _silent_refresh(self):
         """Refresh entity states without clearing the UI."""
+        try:
+            if hasattr(self, "_silent_thread") and self._silent_thread and self._silent_thread.isRunning():
+                return
+        except RuntimeError:
+            self._silent_thread = None
         t = HADataFetchThread()
         t.entities_found.connect(self._on_silent_refresh)
         t.start()
@@ -982,12 +1000,18 @@ class HASensorTab(QWidget):
         url = settings.get("home_assistant.url", "")
         enabled = settings.get("home_assistant.enabled", False)
         if not url or not enabled:
-            self._show_message("Home Assistant is not configured.", "#6e7a8e")
+            self._show_message("Home Assistant non configuré.", "#6e7a8e")
             return
-        if not ha_manager.is_connected:
-            self._show_message("● Disconnected — refresh to retry.", "#f44336")
+        self._show_message("● Connexion...", "#6e7a8e")
+        self.conn_thread = HAConnectionThread()
+        self.conn_thread.result.connect(self._on_connected)
+        self.conn_thread.start()
+
+    def _on_connected(self, ok: bool):
+        if not ok:
+            self._show_message("● Déconnecté — cliquer sur rafraîchir.", "#f44336")
             return
-        self._show_message("● Loading sensors...", "#6e7a8e")
+        self._show_message("⏳ Chargement des capteurs...", "#6e7a8e")
         self.fetch_thread = HASensorsDataFetchThread()
         self.fetch_thread.entities_found.connect(self._on_sensors_loaded)
         self.fetch_thread.start()
@@ -1145,8 +1169,14 @@ class HACameraTab(QWidget):
         if not url or not enabled:
             self._show_message("Home Assistant non configuré.", "#6e7a8e")
             return
-        if not ha_manager.is_connected:
-            self._show_message("● Déconnecté.", "#f44336")
+        self._show_message("● Connexion...", "#6e7a8e")
+        self.conn_thread = HAConnectionThread()
+        self.conn_thread.result.connect(self._on_connected)
+        self.conn_thread.start()
+
+    def _on_connected(self, ok: bool):
+        if not ok:
+            self._show_message("● Déconnecté — cliquer sur rafraîchir.", "#f44336")
             return
         self._show_message("⏳ Chargement des caméras...", "#6e7a8e")
         self.fetch_thread = HACameraFetchThread()
@@ -1254,6 +1284,9 @@ class HomeAutomationTab(QWidget):
         self.tab_widget.addTab(self.ha_sensors_tab, "Capteurs")
         self.tab_widget.addTab(self.ha_cameras_tab, "Caméras")
 
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().aboutToQuit.connect(self._cleanup)
+
         main_layout.addWidget(self.tab_widget)
 
     def _setup_header(self, parent_layout):
@@ -1302,6 +1335,19 @@ class HomeAutomationTab(QWidget):
         else:
             self.ha_badge.setText("●  Disconnected")
             self.ha_badge.setStyleSheet(_BADGE_BASE + "color: #f44336;")
+
+    def _cleanup(self):
+        if hasattr(self, "ha_tab") and hasattr(self.ha_tab, "_refresh_timer"):
+            self.ha_tab._refresh_timer.stop()
+        # Stop all camera card timers
+        cam_tab = getattr(self, "ha_cameras_tab", None)
+        if cam_tab and cam_tab._content:
+            grid = getattr(cam_tab._content.widget() if hasattr(cam_tab._content, "widget") else None, "layout", None)
+            if grid and callable(grid):
+                for i in range(grid().count()):
+                    w = grid().itemAt(i).widget()
+                    if hasattr(w, "stop"):
+                        w.stop()
 
     def _on_refresh(self):
         self.kasa_tab._load_devices()

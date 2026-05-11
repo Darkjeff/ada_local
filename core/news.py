@@ -1,14 +1,20 @@
 import json
 import requests
 import datetime
-from duckduckgo_search import DDGS
+import feedparser
 from config import OLLAMA_URL, RESPONDER_MODEL
+
+_RSS_SOURCES = [
+    ("https://news.google.com/rss?hl=fr&gl=FR&ceid=FR:fr",                          "Top Stories", 5),
+    ("https://news.google.com/rss/search?q=technology&hl=fr&gl=FR&ceid=FR:fr",      "Technology",  5),
+    ("https://news.google.com/rss/search?q=science&hl=fr&gl=FR&ceid=FR:fr",         "Science",     3),
+]
+
 
 class NewsManager:
     """Manages fetching and curating news for the Briefing dashboard."""
 
     def __init__(self):
-        self.ddgs = DDGS()
         # Simple in-memory cache: {category: {"timestamp": dt, "data": []}}
         self.cache = {}
         self.cache_duration = datetime.timedelta(minutes=15)
@@ -25,30 +31,34 @@ class NewsManager:
         if cached:
             return cached
 
-        # 2. Fetch raw news
+        # 2. Fetch raw news via RSS
         raw_news = []
         try:
             if status_callback: status_callback("Scanning global headlines...")
-            # Fetch generic top news
-            for r in self.ddgs.news("top news", max_results=5):
-                r['category'] = 'Top Stories'
-                raw_news.append(r)
-            
-            if status_callback: status_callback("Retrieving technology sector updates...")
-            # Fetch Tech news
-            for r in self.ddgs.news("technology news", max_results=5):
-                r['category'] = 'Technology'
-                raw_news.append(r)
-                
-            # Fetch Science news
-            for r in self.ddgs.news("science breakthrough", max_results=3):
-                r['category'] = 'Science'
-                raw_news.append(r)
+            idx = 0
+            for url, category, max_items in _RSS_SOURCES:
+                if category == "Technology" and status_callback:
+                    status_callback("Retrieving technology sector updates...")
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:max_items]:
+                    if hasattr(entry, 'source') and hasattr(entry.source, 'title'):
+                        source = entry.source.title
+                    else:
+                        source = feed.feed.get('title', url.split('/')[2])
+                    raw_news.append({
+                        "id":       idx,
+                        "title":    entry.get('title', ''),
+                        "source":   source,
+                        "date":     entry.get('published', ''),
+                        "url":      entry.get('link', ''),
+                        "image":    "",
+                        "body":     entry.get('summary', ''),
+                        "category": category,
+                    })
+                    idx += 1
 
         except Exception as e:
-            print(f"Error fetching news from DDGS: {e}")
-            # Rate limit or connection error - return empty to trigger fallback
-            # In a production app, we might retry with backoff, but for now we fail gracefully.
+            print(f"Error fetching news from RSS: {e}")
             return []
 
         # 3. AI Curation
@@ -92,7 +102,7 @@ class NewsManager:
                 "date": item.get('date'),
                 "category": item.get('category', 'General'),
                 "url": item.get('url'),
-                "image": item.get('image') # DDGS might return 'image'
+                "image": item.get('image', '')
             })
         return formatted[:8] # Return top 8
 
