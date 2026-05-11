@@ -447,17 +447,12 @@ class SettingsTab(ScrollArea):
         # Voice & Audio Group
         # ─────────────────────────────────────────────────────────────
         self.voice_group = SettingCardGroup("Voice & Audio", self.scrollWidget)
-        
-        piper_voices = [
-            "en_GB-alba-medium",
-            "en_US-amy-medium",
-            "en_US-lessac-medium",
-            "en_US-libritts-high",
-        ]
+
+        piper_voices = self._discover_piper_voices()
         self.tts_voice_card = ComboBoxCard(
             FIF.VOLUME,
             "TTS Voice",
-            "Voice model for text-to-speech",
+            f"Voice model for text-to-speech ({len(piper_voices)} installed)",
             piper_voices,
             "tts.voice",
             self.voice_group
@@ -607,3 +602,12 @@ class SettingsTab(ScrollArea):
             duration=4000,
             parent=self.window()
         )
+
+    def _discover_piper_voices(self) -> list:
+        """Scan the Piper voices directory and return a sorted list of voice names."""
+        from pathlib import Path
+        voices_dir = Path.home() / ".local" / "share" / "piper" / "voices"
+        if not voices_dir.exists():
+            return ["fr_FR-siwis-medium"]
+        voices = sorted(p.stem for p in voices_dir.glob("*.onnx"))
+        return voices if voices else ["fr_FR-siwis-medium"]
