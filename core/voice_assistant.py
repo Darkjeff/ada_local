@@ -18,6 +18,7 @@ from core.model_persistence import ensure_qwen_loaded, mark_qwen_used, unload_qw
 from core.tts import tts, SentenceBuffer
 from core.function_executor import executor as function_executor
 from core.semantic_router import get_route as semantic_route
+from core.skill_manager import skill_manager
 
 # Functions that are actions (not passthrough)
 ACTION_FUNCTIONS = {
@@ -376,16 +377,19 @@ class VoiceAssistant(QObject):
                 self.messages = [self.messages[0]] + self.messages[-(max_hist-1):]
             
             self.messages.append({'role': 'user', 'content': user_text})
-            
+
+            # Inject matching skill (non-destructive copy)
+            messages_with_skill = skill_manager.inject(self.messages, user_text)
+
             # Prepare payload
             payload = {
                 "model": RESPONDER_MODEL,
-                "messages": self.messages,
+                "messages": messages_with_skill,
                 "stream": True,
                 "think": enable_thinking,
                 "keep_alive": "5m"
             }
-            
+
             sentence_buffer = SentenceBuffer()
             full_response = ""
             

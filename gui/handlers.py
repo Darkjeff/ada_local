@@ -10,6 +10,7 @@ from core.model_manager import ensure_exclusive_qwen
 from core.model_persistence import ensure_qwen_loaded, mark_qwen_used
 from core.settings_store import settings as app_settings
 from core.function_executor import executor as function_executor
+from core.skill_manager import skill_manager
 
 # Functions that are actions (not passthrough)
 ACTION_FUNCTIONS = {"control_light", "set_timer", "set_alarm", "create_calendar_event", "add_task", "web_search"}
@@ -248,19 +249,22 @@ class ChatWorker(QObject):
             self.messages = [self.messages[0]] + self.messages[-(max_hist-1):]
         
         self.messages.append({'role': 'user', 'content': self.user_text})
-        
+
         self.ui_update.emit()
         self.status.emit("Generating...")
-        
+
         model = app_settings.get("models.chat", RESPONDER_MODEL)
         ensure_qwen_loaded()  # Use persistence manager
         mark_qwen_used()
         ensure_exclusive_qwen(model)
         ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
-        
+
+        # Inject matching skill into system message (non-destructive copy)
+        messages_with_skill = skill_manager.inject(self.messages, self.user_text)
+
         payload = {
             "model": model,
-            "messages": self.messages,
+            "messages": messages_with_skill,
             "stream": True,
             "think": enable_thinking,
             "keep_alive": "5m"  # Longer keep-alive for voice assistant
