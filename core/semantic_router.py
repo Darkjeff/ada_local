@@ -161,10 +161,14 @@ def _build_router():
             "regarde", "qu'est-ce que tu vois", "décris ce que tu vois",
             "que vois-tu", "regarde autour de toi", "observe",
             "prends une photo", "capture une image", "montre-moi ce que tu vois",
-            "analyse l'image", "décris la scène",
+            "analyse l'image", "décris la scène", "tu vois quoi",
+            "dis-moi ce que tu vois", "qu'est ce que tu vois",
+            "regarde ce qu'il y a", "utilise la caméra", "webcam",
             "what do you see", "look around", "describe what you see",
             "take a picture", "capture a frame", "look at this",
             "what's in front of you", "describe the scene",
+            "use the camera", "show me what you see", "camera",
+            "scan the room", "look at the room",
         ],
     )
 

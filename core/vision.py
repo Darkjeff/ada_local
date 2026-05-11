@@ -10,7 +10,7 @@ from typing import Optional
 from config import OLLAMA_URL
 from core.settings_store import settings
 
-_VISION_MODEL_FALLBACK = "llava-phi3"
+_VISION_MODEL_FALLBACK = "gemma4:latest"
 
 def _vision_model() -> str:
     return settings.get("models.vision", _VISION_MODEL_FALLBACK) or _VISION_MODEL_FALLBACK
@@ -71,24 +71,35 @@ def describe(
 
     base = OLLAMA_URL.rstrip("/")  # "http://localhost:11434/api"
 
-    # Try /api/generate first (compatible with moondream, llava, etc.)
-    # Fall back to /api/chat for models that need it (gemma4)
+    # Vision models need CPU-only inference when GPU VRAM is small (< 4 GB).
+    # num_gpu=0 forces full CPU mode and avoids the llama runner crash.
+    cpu_options = {"num_gpu": 0, "num_thread": 4}
+
+    # gemma4 uses /api/chat; llava/moondream use /api/generate.
+    # Try /api/chat first (works for both), fall back to /api/generate.
     for endpoint, build_payload in [
-        (
-            base + "/generate",
-            lambda: {"model": used_model, "prompt": prompt, "images": [img_b64], "stream": False},
-        ),
         (
             base + "/chat",
             lambda: {
                 "model": used_model,
                 "messages": [{"role": "user", "content": prompt, "images": [img_b64]}],
+                "options": cpu_options,
+                "stream": False,
+            },
+        ),
+        (
+            base + "/generate",
+            lambda: {
+                "model": used_model,
+                "prompt": prompt,
+                "images": [img_b64],
+                "options": cpu_options,
                 "stream": False,
             },
         ),
     ]:
         try:
-            r = requests.post(endpoint, json=build_payload(), timeout=120)
+            r = requests.post(endpoint, json=build_payload(), timeout=300)
             if r.status_code == 200:
                 data = r.json()
                 # /generate returns "response", /chat returns "message.content"
