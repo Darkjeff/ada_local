@@ -67,24 +67,35 @@ def describe(
     img_b64 = base64.b64encode(jpg).decode("utf-8")
     used_model = model or _vision_model()
 
-    try:
-        payload = {
-            "model": used_model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": [img_b64],
-                }
-            ],
-            "stream": False,
-        }
-        # OLLAMA_URL = "http://localhost:11434/api" → chat = OLLAMA_URL + "/chat"
-        url = OLLAMA_URL.rstrip("/") + "/chat"
-        r = requests.post(url, json=payload, timeout=120)
-        r.raise_for_status()
-        text = r.json().get("message", {}).get("content", "")
-        return {"success": True, "description": text, "image_b64": img_b64}
-    except Exception as e:
-        print(f"[Vision] API error: {e}")
-        return {"success": False, "description": f"Erreur vision : {e}", "image_b64": img_b64}
+    base = OLLAMA_URL.rstrip("/")  # "http://localhost:11434/api"
+
+    # Try /api/generate first (compatible with moondream, llava, etc.)
+    # Fall back to /api/chat for models that need it (gemma4)
+    for endpoint, build_payload in [
+        (
+            base + "/generate",
+            lambda: {"model": used_model, "prompt": prompt, "images": [img_b64], "stream": False},
+        ),
+        (
+            base + "/chat",
+            lambda: {
+                "model": used_model,
+                "messages": [{"role": "user", "content": prompt, "images": [img_b64]}],
+                "stream": False,
+            },
+        ),
+    ]:
+        try:
+            r = requests.post(endpoint, json=build_payload(), timeout=120)
+            if r.status_code == 200:
+                data = r.json()
+                # /generate returns "response", /chat returns "message.content"
+                text = data.get("response") or data.get("message", {}).get("content", "")
+                if text:
+                    return {"success": True, "description": text, "image_b64": img_b64}
+            else:
+                print(f"[Vision] {endpoint} → HTTP {r.status_code}")
+        except Exception as e:
+            print(f"[Vision] {endpoint} failed: {e}")
+
+    return {"success": False, "description": "Erreur : aucun modèle vision n'a pu répondre.", "image_b64": img_b64}
