@@ -155,9 +155,11 @@ class TelegramAdapter:
         if allowed and chat_id not in allowed:
             return
 
-        # Slash commands
+        # Slash commands (strip @botname suffix e.g. /myid@ada_jeff_bot)
         if text.startswith("/"):
-            self._handle_command(chat_id, text.split()[0].lower())
+            cmd = text.split()[0].lower()
+            cmd = cmd.split("@")[0]  # strip @botname if present
+            self._handle_command(chat_id, cmd)
             return
 
         self._send_typing(chat_id)
