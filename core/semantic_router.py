@@ -142,6 +142,12 @@ def _build_router():
             "pause l'impression", "annule l'impression", "quelle est la progression",
             "température de la buse", "température du plateau",
             "trouve les imprimantes", "connecte l'imprimante",
+            "quel est le statut de l'impression", "où en est l'impression",
+            "est-ce que l'imprimante imprime", "l'impression est-elle terminée",
+            "combien de temps reste-t-il pour l'impression",
+            "arrête l'impression", "met en pause l'imprimante",
+            "imprimante 3D", "octoprint", "klipper", "moonraker",
+            "3D printer status", "is the printer done", "stop the printer",
         ],
     )
 
