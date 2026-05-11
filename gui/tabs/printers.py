@@ -419,12 +419,17 @@ class PrintersTab(QWidget):
             self.key_input.setVisible(True)
             self._key_label.setText("API Key (OctoPrint)")
             self.key_input.setPlaceholderText("optional")
+            if self.port_input.text() in ("22", ""):
+                self.port_input.setText("80")
         elif ptype == "k1_ssh":
             self.key_input.setVisible(True)
             self._key_label.setText("SSH Password")
             self.key_input.setPlaceholderText("root password")
-        else:
+            self.port_input.setText("22")  # SSH always port 22
+        else:  # moonraker
             self.key_input.setVisible(False)
+            if self.port_input.text() in ("22", "80", ""):
+                self.port_input.setText("7125")
 
     # ── Status card ──────────────────────────────────────────────────── #
 
