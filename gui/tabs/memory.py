@@ -17,6 +17,19 @@ from qfluentwidgets import (
 from core.memory_store import memory_store
 
 
+class _ConsolidateThread(QThread):
+    done = Signal(object)   # dict or None
+
+    def __init__(self, force: bool = True):
+        super().__init__()
+        self._force = force
+
+    def run(self):
+        from core.memory_consolidator import consolidate_today
+        result = consolidate_today(force=self._force)
+        self.done.emit(result)
+
+
 class _SearchThread(QThread):
     results_ready = Signal(list)
 
@@ -55,12 +68,37 @@ class MemoryTab(QWidget):
         header.addStretch()
 
         stats = memory_store.stats()
-        self.stats_label = QLabel(
-            f"{stats.get('total', 0)} souvenirs · {stats.get('sessions', 0)} sessions"
-        )
+        self.stats_label = QLabel(self._stats_text(stats))
         self.stats_label.setStyleSheet("color: #555; font-size: 12px;")
         header.addWidget(self.stats_label)
+
+        self.consolidate_btn = PrimaryPushButton(FIF.SYNC, "Consolider maintenant")
+        self.consolidate_btn.setToolTip(
+            "Lance la consolidation mémorielle LLM sur les conversations d'aujourd'hui"
+        )
+        self.consolidate_btn.clicked.connect(self._on_consolidate)
+        header.addWidget(self.consolidate_btn)
+
         root.addLayout(header)
+
+        # Consolidated memories banner
+        self.consolidated_frame = QFrame()
+        self.consolidated_frame.setStyleSheet(
+            "background: rgba(82,148,226,0.07); border-radius: 8px; "
+            "border: 1px solid rgba(82,148,226,0.15);"
+        )
+        cf_layout = QVBoxLayout(self.consolidated_frame)
+        cf_layout.setContentsMargins(12, 8, 12, 8)
+        cf_layout.setSpacing(4)
+        cf_title = QLabel("🧠 Mémoire consolidée (résumés nuitéens)")
+        cf_title.setStyleSheet("color: #5294e2; font-size: 12px; font-weight: bold;")
+        cf_layout.addWidget(cf_title)
+        self.consolidated_text = QLabel("Chargement…")
+        self.consolidated_text.setStyleSheet("color: #a0a0a0; font-size: 11px;")
+        self.consolidated_text.setWordWrap(True)
+        cf_layout.addWidget(self.consolidated_text)
+        root.addWidget(self.consolidated_frame)
+        QTimer.singleShot(300, self._refresh_consolidated)
 
         # Search bar
         search_row = QHBoxLayout()
@@ -146,6 +184,52 @@ class MemoryTab(QWidget):
 
     # ── Logic ────────────────────────────────────────────────────────────────
 
+    def _stats_text(self, stats: dict) -> str:
+        return (f"{stats.get('total', 0)} souvenirs · "
+                f"{stats.get('sessions', 0)} sessions · "
+                f"{stats.get('consolidated', 0)} consolidation(s)")
+
+    def _refresh_consolidated(self):
+        items = memory_store.get_consolidated(days=5)
+        if not items:
+            self.consolidated_text.setText("Aucune consolidation encore — lance la première manuellement.")
+            return
+        lines = []
+        for c in items[:3]:
+            facts_str = " · ".join(c["facts"][:2]) if c["facts"] else ""
+            lines.append(f"📅 {c['date']} ({c['raw_count']} échanges) — {c['summary'][:120]}")
+            if facts_str:
+                lines.append(f"   Faits : {facts_str}")
+        self.consolidated_text.setText("\n".join(lines))
+
+    def _on_consolidate(self):
+        self.consolidate_btn.setEnabled(False)
+        self.consolidate_btn.setText("Consolidation en cours…")
+        self._consolidate_thread = _ConsolidateThread(force=True)
+        self._consolidate_thread.done.connect(self._on_consolidate_done)
+        self._consolidate_thread.start()
+
+    def _on_consolidate_done(self, result):
+        self.consolidate_btn.setEnabled(True)
+        self.consolidate_btn.setText("Consolider maintenant")
+        self._refresh_consolidated()
+        stats = memory_store.stats()
+        self.stats_label.setText(self._stats_text(stats))
+        if result:
+            InfoBar.success(
+                title="Consolidation terminée",
+                content=f"{len(result.get('facts', []))} faits extraits · {result.get('summary', '')[:80]}",
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP_RIGHT, duration=5000, parent=self,
+            )
+        else:
+            InfoBar.warning(
+                title="Consolidation échouée",
+                content="Pas assez de souvenirs ou erreur LLM.",
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP_RIGHT, duration=4000, parent=self,
+            )
+
     def _load_recent(self):
         self.search_input.clear()
         self._run_search("")
@@ -177,9 +261,7 @@ class MemoryTab(QWidget):
 
         # Refresh stats
         stats = memory_store.stats()
-        self.stats_label.setText(
-            f"{stats.get('total', 0)} souvenirs · {stats.get('sessions', 0)} sessions"
-        )
+        self.stats_label.setText(self._stats_text(stats))
 
     def _on_select(self, item: QListWidgetItem | None):
         if not item:

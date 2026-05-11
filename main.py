@@ -27,6 +27,10 @@ if __name__ == "__main__":
     from core.memory_store import memory_store
     memory_store.initialize()
 
+    # Start nightly memory consolidation scheduler (runs at 3:00 AM)
+    from core.memory_consolidator import start_nightly_scheduler
+    start_nightly_scheduler(hour=3)
+
     app = QApplication(sys.argv)
     
     # Configure Aura Theme

@@ -69,6 +69,17 @@ class MemoryStore:
                 INSERT INTO memories_fts(rowid, content)
                 VALUES (new.id, new.content);
             END;
+
+            -- Consolidated memories: nightly LLM summaries
+            CREATE TABLE IF NOT EXISTS consolidated_memories (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                date       TEXT    NOT NULL UNIQUE,  -- "2026-05-11"
+                summary    TEXT    NOT NULL,
+                facts      TEXT    NOT NULL DEFAULT '[]',  -- JSON array
+                topics     TEXT    NOT NULL DEFAULT '[]',  -- JSON array
+                raw_count  INTEGER NOT NULL DEFAULT 0,
+                created_at REAL    NOT NULL
+            );
         """)
         self._db.commit()
 
@@ -169,30 +180,108 @@ class MemoryStore:
             "SELECT COUNT(*) as total, COUNT(DISTINCT session_id) as sessions "
             "FROM memories"
         ).fetchone()
-        return dict(row) if row else {}
+        r2 = self._db.execute(
+            "SELECT COUNT(*) as consolidated FROM consolidated_memories"
+        ).fetchone()
+        d = dict(row) if row else {}
+        d["consolidated"] = r2["consolidated"] if r2 else 0
+        return d
+
+    # ── Consolidated memories ─────────────────────────────────────────────────
+
+    def get_memories_for_date(self, date_str: str) -> List[dict]:
+        """Get all raw memories for a given date (YYYY-MM-DD)."""
+        if not self._db:
+            return []
+        start = datetime.strptime(date_str, "%Y-%m-%d").timestamp()
+        end = start + 86400
+        rows = self._db.execute(
+            "SELECT * FROM memories WHERE timestamp >= ? AND timestamp < ? "
+            "ORDER BY timestamp ASC",
+            (start, end)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_consolidated(self, date_str: str, summary: str,
+                          facts: list, topics: list, raw_count: int):
+        """Upsert a consolidated memory for a given date."""
+        if not self._db:
+            return
+        import json
+        with self._lock:
+            self._db.execute("""
+                INSERT INTO consolidated_memories
+                    (date, summary, facts, topics, raw_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    summary=excluded.summary, facts=excluded.facts,
+                    topics=excluded.topics, raw_count=excluded.raw_count,
+                    created_at=excluded.created_at
+            """, (date_str, summary, json.dumps(facts, ensure_ascii=False),
+                  json.dumps(topics, ensure_ascii=False), raw_count,
+                  datetime.now().timestamp()))
+            self._db.commit()
+
+    def get_consolidated(self, days: int = 7) -> List[dict]:
+        """Return the most recent N consolidated memories."""
+        if not self._db:
+            return []
+        import json
+        rows = self._db.execute(
+            "SELECT * FROM consolidated_memories ORDER BY date DESC LIMIT ?",
+            (days,)
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["facts"] = json.loads(d["facts"])
+            d["topics"] = json.loads(d["topics"])
+            result.append(d)
+        return result
+
+    def already_consolidated(self, date_str: str) -> bool:
+        if not self._db:
+            return False
+        row = self._db.execute(
+            "SELECT 1 FROM consolidated_memories WHERE date = ?", (date_str,)
+        ).fetchone()
+        return row is not None
 
     # ── Injection helper ──────────────────────────────────────────────────────
 
     def build_context(self, query: str, current_session_id: Optional[str] = None,
                       limit: int = 4) -> str:
         """
-        Search memories and format them as a context block for injection.
+        Build context block: consolidated summaries first, then raw BM25 matches.
         Returns empty string if nothing relevant found.
         """
+        parts: list[str] = []
+
+        # Recent consolidated summaries (last 3 days)
+        consolidated = self.get_consolidated(days=3)
+        if consolidated:
+            lines = ["[RÉSUMÉS CONSOLIDÉS — mémoire longue terme]"]
+            for c in consolidated[:2]:
+                facts_preview = " · ".join(c["facts"][:3]) if c["facts"] else ""
+                lines.append(f"• {c['date']} : {c['summary'][:200]}")
+                if facts_preview:
+                    lines.append(f"  Faits clés : {facts_preview}")
+            parts.append("\n".join(lines))
+
+        # Raw BM25 search
         results = self.search(query, limit=limit, exclude_session=current_session_id)
-        if not results:
-            return ""
+        if results:
+            lines = ["[SOUVENIRS PERTINENTS — conversations passées]"]
+            for r in results:
+                date = datetime.fromtimestamp(r["timestamp"]).strftime("%d/%m %H:%M")
+                role_label = "Toi" if r["role"] == "user" else "ADA"
+                snippet = r["content"][:180].replace("\n", " ")
+                if len(r["content"]) > 180:
+                    snippet += "…"
+                lines.append(f"• [{date}] {role_label} : {snippet}")
+            parts.append("\n".join(lines))
 
-        lines = ["[SOUVENIRS PERTINENTS — conversations passées]"]
-        for r in results:
-            date = datetime.fromtimestamp(r["timestamp"]).strftime("%d/%m %H:%M")
-            role_label = "Toi" if r["role"] == "user" else "ADA"
-            snippet = r["content"][:180].replace("\n", " ")
-            if len(r["content"]) > 180:
-                snippet += "…"
-            lines.append(f"• [{date}] {role_label} : {snippet}")
-
-        return "\n".join(lines)
+        return "\n\n".join(parts)
 
 
 # Global singleton — call memory_store.initialize() once at startup
