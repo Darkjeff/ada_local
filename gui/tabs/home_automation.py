@@ -3,8 +3,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QScrollArea, QGridLayout, QPushButton, QTabWidget
 )
-from PySide6.QtCore import Qt, Signal, QThread
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal, QThread, QTimer
+from PySide6.QtGui import QColor, QPixmap
 from qfluentwidgets import (
     TitleLabel, BodyLabel,
     FluentIcon as FIF, IconWidget, SwitchButton, Slider,
@@ -200,6 +200,31 @@ class HASensorsDataFetchThread(QThread):
             self.entities_found.emit({})
 
 
+class HACameraFetchThread(QThread):
+    """Fetches all camera entities."""
+    cameras_found = Signal(dict)
+
+    def run(self):
+        try:
+            self.cameras_found.emit(ha_manager.get_camera_entities())
+        except Exception:
+            self.cameras_found.emit({})
+
+
+class HACameraSnapshotThread(QThread):
+    """Fetches a single camera snapshot image."""
+    snapshot_ready = Signal(str, bytes)
+
+    def __init__(self, entity_id: str):
+        super().__init__()
+        self.entity_id = entity_id
+
+    def run(self):
+        data = ha_manager.get_camera_snapshot(self.entity_id)
+        if data:
+            self.snapshot_ready.emit(self.entity_id, data)
+
+
 class HAActionThread(QThread):
     """Executes a single HA action."""
     finished = Signal(bool)
@@ -221,6 +246,162 @@ class HAActionThread(QThread):
             self.finished.emit(success)
         except Exception:
             self.finished.emit(False)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HA Multi-Sensor Card (groups related sensors e.g. temp + humidity)
+# ══════════════════════════════════════════════════════════════════════
+
+_DEVICE_CLASS_ICONS = {
+    "temperature":    "🌡",
+    "humidity":       "💧",
+    "pressure":       "🔵",
+    "battery":        "🔋",
+    "illuminance":    "☀",
+    "co2":            "💨",
+    "power":          "⚡",
+    "energy":         "⚡",
+    "voltage":        "⚡",
+    "current":        "⚡",
+    "motion":         "👁",
+    "door":           "🚪",
+    "window":         "🪟",
+    "smoke":          "🔥",
+}
+
+_DEVICE_CLASS_COLORS = {
+    "temperature": "#ff7043",
+    "humidity":    "#29b6f6",
+    "energy":      "#ffca28",
+    "power":       "#ab47bc",
+    "battery":     "#66bb6a",
+}
+
+
+class HAMultiSensorCard(QFrame):
+    """Card displaying multiple related sensor values (e.g. temp + humidity)."""
+
+    def __init__(self, device_name: str, sensors: list[dict], parent=None):
+        super().__init__(parent)
+        self.setFixedSize(300, 160)
+        self.setStyleSheet("""
+            HAMultiSensorCard {
+                background-color: #1a2236;
+                border: 1px solid #2a3556;
+                border-radius: 20px;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(8)
+
+        title = QLabel(device_name)
+        title.setStyleSheet(
+            "color: white; font-weight: bold; font-size: 14px; background: transparent;"
+        )
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        layout.addSpacing(4)
+
+        for sensor in sensors[:3]:
+            attrs = sensor.get("attributes", {})
+            dc = attrs.get("device_class", "")
+            unit = attrs.get("unit_of_measurement", "")
+            friendly = attrs.get("friendly_name", sensor.get("entity_id", ""))
+            state = sensor.get("state", "—")
+            icon = _DEVICE_CLASS_ICONS.get(dc, "•")
+            color = _DEVICE_CLASS_COLORS.get(dc, "#33b5e5")
+
+            row = QHBoxLayout()
+            row.setSpacing(10)
+
+            icon_lbl = QLabel(icon)
+            icon_lbl.setStyleSheet(f"color: {color}; font-size: 16px; background: transparent;")
+            icon_lbl.setFixedWidth(22)
+
+            name_lbl = QLabel(friendly.replace(device_name, "").strip() or friendly)
+            name_lbl.setStyleSheet("color: #6e7a8e; font-size: 12px; background: transparent;")
+
+            val_lbl = QLabel(f"{state} {unit}".strip())
+            val_lbl.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: bold; background: transparent;")
+            val_lbl.setAlignment(Qt.AlignRight)
+
+            row.addWidget(icon_lbl)
+            row.addWidget(name_lbl, stretch=1)
+            row.addWidget(val_lbl)
+            layout.addLayout(row)
+
+        layout.addStretch()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HA Camera Card (live snapshot)
+# ══════════════════════════════════════════════════════════════════════
+
+class HACameraCard(QFrame):
+    """Card showing a camera snapshot, auto-refreshing every 5 seconds."""
+
+    def __init__(self, entity_id: str, entity_info: dict, parent=None):
+        super().__init__(parent)
+        self.entity_id = entity_id
+        attrs = entity_info.get("attributes", {})
+        self.friendly_name = attrs.get("friendly_name", entity_id)
+
+        self.setFixedSize(300, 220)
+        self.setStyleSheet("""
+            HACameraCard {
+                background-color: #1a2236;
+                border: 1px solid #2a3556;
+                border-radius: 20px;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.image_label = QLabel()
+        self.image_label.setFixedSize(300, 180)
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setStyleSheet(
+            "background-color: #0d121d; border-radius: 20px 20px 0 0;"
+        )
+        self.image_label.setText("⏳ Chargement...")
+        self.image_label.setStyleSheet(
+            "color: #6e7a8e; font-size: 13px; background-color: #0d121d;"
+            "border-radius: 20px 20px 0 0;"
+        )
+        layout.addWidget(self.image_label)
+
+        name_label = QLabel(f"  {self.friendly_name}")
+        name_label.setStyleSheet(
+            "color: white; font-weight: bold; font-size: 12px;"
+            "background: transparent; padding: 6px 0;"
+        )
+        layout.addWidget(name_label)
+
+        self._fetch_snapshot()
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._fetch_snapshot)
+        self._timer.start(5000)
+
+    def _fetch_snapshot(self):
+        self._snap_thread = HACameraSnapshotThread(self.entity_id)
+        self._snap_thread.snapshot_ready.connect(self._on_snapshot)
+        self._snap_thread.start()
+
+    def _on_snapshot(self, entity_id: str, data: bytes):
+        pixmap = QPixmap()
+        pixmap.loadFromData(data)
+        scaled = pixmap.scaled(
+            300, 180, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+        )
+        self.image_label.setPixmap(scaled)
+        self.image_label.setStyleSheet(
+            "background-color: #0d121d; border-radius: 20px 20px 0 0;"
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -588,7 +769,28 @@ class HATab(QWidget):
         self.fetch_thread.entities_found.connect(self._on_entities_loaded)
         self.fetch_thread.start()
 
+    def _start_auto_refresh(self):
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._silent_refresh)
+        self._refresh_timer.start(30_000)
+
+    def _silent_refresh(self):
+        """Refresh entity states without clearing the UI."""
+        t = HADataFetchThread()
+        t.entities_found.connect(self._on_silent_refresh)
+        t.start()
+        self._silent_thread = t
+
+    def _on_silent_refresh(self, entities: dict):
+        if not entities or not hasattr(self, "ha_entities"):
+            return
+        self.ha_entities = list(entities.values())
+        self.ha_room_groups = self._categorize(self.ha_entities)
+        self._filter_ha_grid(self._active_room)
+
     def refresh(self):
+        if hasattr(self, "_refresh_timer"):
+            self._refresh_timer.stop()
         self._clear_content()
         self._check_connection()
 
@@ -678,10 +880,12 @@ class HATab(QWidget):
 
         self.ha_entities = list(entities.values())
         self.ha_room_groups = self._categorize(self.ha_entities)
+        self._active_room = "All"
 
         # Filter row
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(15)
+        self._filter_row_layout = QHBoxLayout()
+        self._filter_row_layout.setSpacing(15)
+        self._filter_buttons: dict[str, QPushButton] = {}
         rooms = ["All"] + sorted(self.ha_room_groups.keys())
         for i, room in enumerate(rooms):
             btn = QPushButton(room)
@@ -696,9 +900,10 @@ class HATab(QWidget):
                 QPushButton:hover   { background-color: #232d45; }
             """)
             btn.clicked.connect(lambda _, r=room: self._filter_ha_grid(r))
-            filter_row.addWidget(btn)
-        filter_row.addStretch()
-        layout.addLayout(filter_row)
+            self._filter_buttons[room] = btn
+            self._filter_row_layout.addWidget(btn)
+        self._filter_row_layout.addStretch()
+        layout.addLayout(self._filter_row_layout)
 
         # Grid
         scroll = QScrollArea()
@@ -715,6 +920,7 @@ class HATab(QWidget):
         self._content = w
         self._main_layout.addWidget(w)
         self._filter_ha_grid("All")
+        self._start_auto_refresh()
 
     def _categorize(self, entities: list) -> dict:
         keywords = {
@@ -739,6 +945,10 @@ class HATab(QWidget):
         return groups
 
     def _filter_ha_grid(self, room_name: str):
+        self._active_room = room_name
+        for btn_room, btn in self._filter_buttons.items():
+            btn.setChecked(btn_room == room_name)
+
         for i in reversed(range(self.ha_grid_layout.count())):
             self.ha_grid_layout.itemAt(i).widget().setParent(None)
 
@@ -800,9 +1010,46 @@ class HASensorTab(QWidget):
         self._content = w
         self._main_layout.addWidget(w)
 
+    def _group_sensors(self, sensor_list: list) -> list:
+        """
+        Group sensors that share the same device (common friendly_name prefix).
+        Returns a list of items: either a single entity dict or a (device_name, [entities]) tuple.
+        """
+        from collections import defaultdict
+        device_map: dict[str, list] = defaultdict(list)
+        ungrouped = []
+
+        for e in sensor_list:
+            attrs = e.get("attributes", {})
+            dc = attrs.get("device_class", "")
+            friendly = attrs.get("friendly_name", "")
+            # Sensors with recognized device_class go into device grouping
+            if dc in _DEVICE_CLASS_ICONS and friendly:
+                # Derive device name: remove common suffixes like "Temperature", "Humidity"
+                suffixes = ["temperature", "humidity", "pressure", "battery",
+                            "illuminance", "co2", "power", "energy", "voltage",
+                            "current", "température", "humidité"]
+                device_name = friendly.lower()
+                for s in suffixes:
+                    device_name = device_name.replace(s, "").strip(" -_")
+                device_name = device_name.title() or friendly
+                device_map[device_name].append(e)
+            else:
+                ungrouped.append(e)
+
+        result = []
+        for device_name, sensors in device_map.items():
+            if len(sensors) > 1:
+                result.append(("multi", device_name, sensors))
+            else:
+                result.append(("single", sensors[0]))
+        for e in ungrouped:
+            result.append(("single", e))
+        return result
+
     def _on_sensors_loaded(self, entities: dict):
         if not entities:
-            self._show_message("No sensors found.", "#6e7a8e")
+            self._show_message("Aucun capteur trouvé.", "#6e7a8e")
             return
 
         self._clear_content()
@@ -812,27 +1059,30 @@ class HASensorTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
-        # Filter buttons: All / Sensor / Binary Sensor
+        all_sensors = list(entities.values())
+        self._grouped_all = self._group_sensors(all_sensors)
+        self._grouped_sensor = self._group_sensors(
+            [e for e in all_sensors if e["entity_id"].startswith("sensor.")]
+        )
+        self._grouped_binary = self._group_sensors(
+            [e for e in all_sensors if e["entity_id"].startswith("binary_sensor.")]
+        )
+
+        _BTN_FILTER = """
+            QPushButton {
+                background-color: #1a2236; color: #6e7a8e;
+                border-radius: 15px; padding: 8px 20px; border: none; font-weight: bold;
+            }
+            QPushButton:checked { background-color: #33b5e5; color: #0f1524; }
+            QPushButton:hover   { background-color: #232d45; }
+        """
         filter_row = QHBoxLayout()
         filter_row.setSpacing(15)
-        self._sensor_entities = list(entities.values())
-        self._sensor_groups = {
-            "sensor":        [e for e in self._sensor_entities if e["entity_id"].startswith("sensor.")],
-            "binary_sensor": [e for e in self._sensor_entities if e["entity_id"].startswith("binary_sensor.")],
-        }
-        for i, label in enumerate(["All", "Sensor", "Binary Sensor"]):
-            key = label.lower().replace(" ", "_")
+        for i, (label, key) in enumerate([("Tous", "all"), ("Capteurs", "sensor"), ("Binaires", "binary")]):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setChecked(i == 0)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #1a2236; color: #6e7a8e;
-                    border-radius: 15px; padding: 8px 20px; border: none; font-weight: bold;
-                }
-                QPushButton:checked { background-color: #33b5e5; color: #0f1524; }
-                QPushButton:hover   { background-color: #232d45; }
-            """)
+            btn.setStyleSheet(_BTN_FILTER)
             btn.clicked.connect(lambda _, k=key: self._filter_grid(k))
             filter_row.addWidget(btn)
         filter_row.addStretch()
@@ -857,19 +1107,97 @@ class HASensorTab(QWidget):
         for i in reversed(range(self._grid_layout.count())):
             self._grid_layout.itemAt(i).widget().setParent(None)
 
-        if key == "all":
-            items = self._sensor_entities
-        else:
-            items = self._sensor_groups.get(key, [])
+        groups = {"all": self._grouped_all, "sensor": self._grouped_sensor, "binary": self._grouped_binary}
+        items = groups.get(key, self._grouped_all)
 
         row = col = 0
-        for e in items:
-            card = HASensorCard(e["entity_id"], e)
+        for item in items:
+            if item[0] == "multi":
+                _, device_name, sensors = item
+                card = HAMultiSensorCard(device_name, sensors)
+            else:
+                _, e = item
+                card = HASensorCard(e["entity_id"], e)
             self._grid_layout.addWidget(card, row, col)
             col += 1
             if col >= 3:
                 col = 0
                 row += 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HA Camera sub-tab
+# ══════════════════════════════════════════════════════════════════════
+
+class HACameraTab(QWidget):
+    """Live camera snapshot grid — refreshes every 5 s per card."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._main_layout = QVBoxLayout(self)
+        self._main_layout.setContentsMargins(0, 20, 0, 0)
+        self._content = None
+        self._check_and_load()
+
+    def _check_and_load(self):
+        url = settings.get("home_assistant.url", "")
+        enabled = settings.get("home_assistant.enabled", False)
+        if not url or not enabled:
+            self._show_message("Home Assistant non configuré.", "#6e7a8e")
+            return
+        if not ha_manager.is_connected:
+            self._show_message("● Déconnecté.", "#f44336")
+            return
+        self._show_message("⏳ Chargement des caméras...", "#6e7a8e")
+        self.fetch_thread = HACameraFetchThread()
+        self.fetch_thread.cameras_found.connect(self._on_cameras_loaded)
+        self.fetch_thread.start()
+
+    def refresh(self):
+        self._clear_content()
+        self._check_and_load()
+
+    def _clear_content(self):
+        if self._content is not None:
+            self._main_layout.removeWidget(self._content)
+            self._content.deleteLater()
+            self._content = None
+
+    def _show_message(self, text: str, color: str):
+        self._clear_content()
+        w = QLabel(text)
+        w.setAlignment(Qt.AlignCenter)
+        w.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: bold;")
+        self._content = w
+        self._main_layout.addWidget(w)
+
+    def _on_cameras_loaded(self, entities: dict):
+        if not entities:
+            self._show_message("Aucune caméra trouvée.", "#6e7a8e")
+            return
+
+        self._clear_content()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        grid_widget = QWidget()
+        grid_widget.setStyleSheet("background: transparent;")
+        grid_layout = QGridLayout(grid_widget)
+        grid_layout.setSpacing(20)
+        grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        scroll.setWidget(grid_widget)
+
+        row = col = 0
+        for entity_id, info in entities.items():
+            card = HACameraCard(entity_id, info)
+            grid_layout.addWidget(card, row, col)
+            col += 1
+            if col >= 3:
+                col = 0
+                row += 1
+
+        self._content = scroll
+        self._main_layout.addWidget(scroll)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -918,11 +1246,13 @@ class HomeAutomationTab(QWidget):
         self.kasa_tab = KasaTab(self)
         self.ha_tab = HATab(self)
         self.ha_sensors_tab = HASensorTab(self)
+        self.ha_cameras_tab = HACameraTab(self)
         self.ha_tab.navigate_to_settings.connect(self.navigate_to_settings)
 
         self.tab_widget.addTab(self.kasa_tab, "Kasa")
         self.tab_widget.addTab(self.ha_tab, "Home Assistant")
-        self.tab_widget.addTab(self.ha_sensors_tab, "Sensors")
+        self.tab_widget.addTab(self.ha_sensors_tab, "Capteurs")
+        self.tab_widget.addTab(self.ha_cameras_tab, "Caméras")
 
         main_layout.addWidget(self.tab_widget)
 
@@ -977,4 +1307,5 @@ class HomeAutomationTab(QWidget):
         self.kasa_tab._load_devices()
         self.ha_tab.refresh()
         self.ha_sensors_tab.refresh()
+        self.ha_cameras_tab.refresh()
         self._start_badge_check()

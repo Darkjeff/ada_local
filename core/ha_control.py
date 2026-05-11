@@ -15,6 +15,8 @@ CONTROLLABLE_DOMAINS = frozenset({
 
 SENSOR_DOMAINS = frozenset({"sensor", "binary_sensor"})
 
+CAMERA_DOMAINS = frozenset({"camera"})
+
 DOMAIN_SERVICES = {
     "light":        ("light/turn_on",            "light/turn_off"),
     "switch":       ("switch/turn_on",           "switch/turn_off"),
@@ -137,6 +139,30 @@ class HAManager:
             eid: info for eid, info in raw.items()
             if eid.split(".")[0] in SENSOR_DOMAINS
         }
+
+    def get_camera_entities(self) -> dict[str, Any]:
+        """Returns camera entities."""
+        raw = self._raw_entities or self._fetch_all_states()
+        return {
+            eid: info for eid, info in raw.items()
+            if eid.split(".")[0] in CAMERA_DOMAINS
+        }
+
+    def get_camera_snapshot(self, entity_id: str) -> bytes | None:
+        """GET /api/camera_proxy/{entity_id} — returns raw image bytes or None."""
+        if not self._url or not self._token:
+            return None
+        try:
+            resp = requests.get(
+                f"{self._url}/api/camera_proxy/{entity_id}",
+                headers=self._headers(),
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                return resp.content
+        except Exception as e:
+            print(f"[HAManager] camera snapshot {entity_id} failed: {e}")
+        return None
 
     def get_state(self, entity_id: str) -> dict:
         """GET /api/states/{entity_id} — returns entity state dict or {}."""
