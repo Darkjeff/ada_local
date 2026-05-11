@@ -47,6 +47,7 @@ class FunctionExecutor:
         self.ha_manager = None
         self.weather_manager = None
         self.news_manager = None
+        self.printer_agent = None
         
         # In-memory timer storage
         self.active_timers: Dict[str, ActiveTimer] = {}
@@ -92,6 +93,13 @@ class FunctionExecutor:
             self.news_manager = NewsManager()
         except Exception as e:
             print(f"[FunctionExecutor] NewsManager init failed: {e}")
+
+        try:
+            from core.printer_agent import printer_agent
+            self.printer_agent = printer_agent
+        except Exception as e:
+            print(f"[FunctionExecutor] PrinterAgent init failed: {e}")
+            self.printer_agent = None
     
     def execute(self, func_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -119,6 +127,10 @@ class FunctionExecutor:
                 return self._web_search(params)
             elif func_name == "get_system_info":
                 return self._get_system_info()
+            elif func_name == "get_print_status":
+                return self._get_print_status()
+            elif func_name == "control_printer":
+                return self._control_printer(params)
             else:
                 return {"success": False, "message": f"Unknown function: {func_name}", "data": None}
         except Exception as e:
@@ -640,6 +652,65 @@ class FunctionExecutor:
             "success": True,
             "message": "System info retrieved",
             "data": info
+        }
+
+
+    # === Printer functions ===
+
+    def _get_print_status(self) -> Dict:
+        if not self.printer_agent:
+            return {"success": False, "message": "Printer agent not available", "data": None}
+        if not self.printer_agent.is_connected:
+            return {"success": False, "message": "Printer not connected", "data": None}
+        status = self.printer_agent.get_status()
+        if not status:
+            return {"success": False, "message": "Could not retrieve printer status", "data": None}
+        pct = int(status.progress * 100)
+        elapsed = status.format_time(status.time_elapsed)
+        remaining = status.format_time(status.time_remaining)
+        msg = (
+            f"Printer is {status.state}. "
+            + (f"Printing {status.filename}, " if status.filename else "")
+            + f"{pct}% complete. "
+            + f"Elapsed: {elapsed}, remaining: {remaining}. "
+            + f"Nozzle: {status.nozzle_temp:.0f}°C / {status.nozzle_target:.0f}°C, "
+            + f"Bed: {status.bed_temp:.0f}°C / {status.bed_target:.0f}°C."
+        )
+        return {
+            "success": True,
+            "message": msg,
+            "data": {
+                "state": status.state,
+                "progress": pct,
+                "filename": status.filename,
+                "nozzle_temp": status.nozzle_temp,
+                "nozzle_target": status.nozzle_target,
+                "bed_temp": status.bed_temp,
+                "bed_target": status.bed_target,
+                "time_elapsed": elapsed,
+                "time_remaining": remaining,
+            },
+        }
+
+    def _control_printer(self, params: Dict) -> Dict:
+        action = params.get("action", "")
+        if not self.printer_agent:
+            return {"success": False, "message": "Printer agent not available", "data": None}
+        if not self.printer_agent.is_connected:
+            return {"success": False, "message": "Printer not connected", "data": None}
+        action_map = {
+            "pause": (self.printer_agent.pause_print, "Print paused"),
+            "resume": (self.printer_agent.resume_print, "Print resumed"),
+            "cancel": (self.printer_agent.cancel_print, "Print cancelled"),
+        }
+        if action not in action_map:
+            return {"success": False, "message": f"Unknown printer action: {action}", "data": None}
+        fn, success_msg = action_map[action]
+        ok = fn()
+        return {
+            "success": ok,
+            "message": success_msg if ok else f"Failed to {action} print",
+            "data": None,
         }
 
 

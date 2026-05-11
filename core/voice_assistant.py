@@ -173,11 +173,8 @@ class VoiceAssistant(QObject):
                 return
 
             if semantic == "print_control":
-                # Printer control → Printer Agent (future)
-                print(f"{CYAN}[VoiceAssistant] → Printer Agent (not yet implemented){RESET}")
-                self._stream_qwen_response(
-                    f"L'utilisateur veut: {user_text}. Dis-lui que le contrôle imprimante est en cours d'intégration.", False
-                )
+                print(f"{CYAN}[VoiceAssistant] → Printer Agent{RESET}")
+                self._handle_print_control(user_text)
                 return
 
             # ── Step 3: function_gemma → Function Gemma (existing flow) ──
@@ -216,6 +213,23 @@ class VoiceAssistant(QObject):
             self.error_occurred.emit(error_msg)
             self.processing_finished.emit()
     
+    def _handle_print_control(self, user_text: str):
+        """Route printer-related queries to PrinterAgent via FunctionExecutor."""
+        text_lower = user_text.lower()
+
+        # Determine action from user text
+        if any(w in text_lower for w in ("pause", "mets en pause", "suspends")):
+            result = function_executor.execute("control_printer", {"action": "pause"})
+        elif any(w in text_lower for w in ("resume", "reprends", "continue", "redémarre")):
+            result = function_executor.execute("control_printer", {"action": "resume"})
+        elif any(w in text_lower for w in ("cancel", "annule", "stop", "arrête")):
+            result = function_executor.execute("control_printer", {"action": "cancel"})
+        else:
+            # Default: status query
+            result = function_executor.execute("get_print_status", {})
+
+        self._generate_response_with_context("print_control", result, user_text)
+
     def _generate_response_with_context(self, func_name: str, result: dict, user_text: str, enable_thinking: bool = False):
         """Generate Qwen response with function execution context."""
         try:

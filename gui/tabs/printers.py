@@ -1,15 +1,15 @@
 """
-Printers tab — Creality K1 status and control via Klipper/SSH.
+Printers tab — OctoPrint / Moonraker control via REST API.
 """
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-    QLineEdit, QPushButton, QProgressBar,
+    QLineEdit, QPushButton, QProgressBar, QComboBox,
 )
 from PySide6.QtCore import Qt, Signal, QThread, QTimer
 from qfluentwidgets import TitleLabel, BodyLabel, ToolButton, FluentIcon as FIF
 
-from core.k1_control import k1_manager
+from core.printer_agent import printer_agent, PrinterType
 from core.settings_store import settings
 
 
@@ -64,6 +64,25 @@ _INPUT_STYLE = """
     QLineEdit:focus { border-color: #33b5e5; }
 """
 
+_COMBO_STYLE = """
+    QComboBox {
+        background-color: #1a2236;
+        border: 1px solid #2a3556;
+        border-radius: 10px;
+        color: white;
+        padding: 8px 14px;
+        font-size: 14px;
+        min-width: 140px;
+    }
+    QComboBox:focus { border-color: #33b5e5; }
+    QComboBox::drop-down { border: none; width: 24px; }
+    QComboBox QAbstractItemView {
+        background-color: #1a2236;
+        color: white;
+        selection-background-color: #2a3556;
+    }
+"""
+
 _PROGRESS_STYLE = """
     QProgressBar {
         background-color: #232d45;
@@ -102,19 +121,19 @@ class ConnectThread(QThread):
 
     def run(self):
         try:
-            self.result.emit(k1_manager.connect())
+            self.result.emit(printer_agent.connect())
         except Exception:
             self.result.emit(False)
 
 
 class StatusFetchThread(QThread):
-    status_found = Signal(dict)
+    status_found = Signal(object)  # PrintStatus or None
 
     def run(self):
         try:
-            self.status_found.emit(k1_manager.get_status())
+            self.status_found.emit(printer_agent.get_status())
         except Exception:
-            self.status_found.emit({})
+            self.status_found.emit(None)
 
 
 class PrintActionThread(QThread):
@@ -127,11 +146,11 @@ class PrintActionThread(QThread):
     def run(self):
         try:
             if self.action == "pause":
-                ok = k1_manager.pause_print()
+                ok = printer_agent.pause_print()
             elif self.action == "resume":
-                ok = k1_manager.resume_print()
+                ok = printer_agent.resume_print()
             elif self.action == "cancel":
-                ok = k1_manager.cancel_print()
+                ok = printer_agent.cancel_print()
             else:
                 ok = False
             self.finished.emit(ok)
@@ -139,11 +158,19 @@ class PrintActionThread(QThread):
             self.finished.emit(False)
 
 
+class DiscoverThread(QThread):
+    found = Signal(list)
+
+    def run(self):
+        try:
+            self.found.emit(printer_agent.discover_printers(timeout=5.0))
+        except Exception:
+            self.found.emit([])
+
+
 # ── Status card ──────────────────────────────────────────────────────── #
 
-class K1StatusCard(QFrame):
-    """Displays K1 printer state, progress and temperatures."""
-
+class PrinterStatusCard(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("statusCard")
@@ -156,9 +183,7 @@ class K1StatusCard(QFrame):
         # State row
         state_row = QHBoxLayout()
         self.state_label = QLabel("● Standby")
-        self.state_label.setStyleSheet(
-            "color: #6e7a8e; font-size: 16px; font-weight: bold;"
-        )
+        self.state_label.setStyleSheet("color: #6e7a8e; font-size: 16px; font-weight: bold;")
         self.filename_label = QLabel("")
         self.filename_label.setStyleSheet("color: #6e7a8e; font-size: 13px;")
         state_row.addWidget(self.state_label)
@@ -174,82 +199,70 @@ class K1StatusCard(QFrame):
         self.progress_bar.setFixedHeight(18)
         layout.addWidget(self.progress_bar)
 
-        # Temperatures
-        temp_row = QHBoxLayout()
-        temp_row.setSpacing(40)
+        # Temperatures + time row
+        info_row = QHBoxLayout()
+        info_row.setSpacing(40)
 
-        nozzle_col = QVBoxLayout()
-        nozzle_col.setSpacing(4)
-        nozzle_title = QLabel("NOZZLE")
-        nozzle_title.setStyleSheet(
-            "color: #6e7a8e; font-size: 11px; font-weight: bold;"
-        )
-        self.nozzle_label = QLabel("-- °C / -- °C")
-        self.nozzle_label.setStyleSheet(
-            "color: white; font-size: 22px; font-weight: bold;"
-        )
-        nozzle_col.addWidget(nozzle_title)
-        nozzle_col.addWidget(self.nozzle_label)
-        temp_row.addLayout(nozzle_col)
+        self.nozzle_label = self._make_temp_col(info_row, "NOZZLE")
+        self.bed_label = self._make_temp_col(info_row, "BED")
 
-        bed_col = QVBoxLayout()
-        bed_col.setSpacing(4)
-        bed_title = QLabel("BED")
-        bed_title.setStyleSheet(
-            "color: #6e7a8e; font-size: 11px; font-weight: bold;"
-        )
-        self.bed_label = QLabel("-- °C / -- °C")
-        self.bed_label.setStyleSheet(
-            "color: white; font-size: 22px; font-weight: bold;"
-        )
-        bed_col.addWidget(bed_title)
-        bed_col.addWidget(self.bed_label)
-        temp_row.addLayout(bed_col)
+        time_col = QVBoxLayout()
+        time_col.setSpacing(4)
+        time_title = QLabel("ELAPSED / LEFT")
+        time_title.setStyleSheet("color: #6e7a8e; font-size: 11px; font-weight: bold;")
+        self.time_label = QLabel("--:--:-- / --:--:--")
+        self.time_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        time_col.addWidget(time_title)
+        time_col.addWidget(self.time_label)
+        info_row.addLayout(time_col)
 
-        temp_row.addStretch()
-        layout.addLayout(temp_row)
+        info_row.addStretch()
+        layout.addLayout(info_row)
 
-    def update_status(self, status: dict):
-        if not status:
+    def _make_temp_col(self, parent_layout, title: str) -> QLabel:
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        t = QLabel(title)
+        t.setStyleSheet("color: #6e7a8e; font-size: 11px; font-weight: bold;")
+        val = QLabel("-- °C / -- °C")
+        val.setStyleSheet("color: white; font-size: 22px; font-weight: bold;")
+        col.addWidget(t)
+        col.addWidget(val)
+        parent_layout.addLayout(col)
+        return val
+
+    def update_status(self, status):
+        if status is None:
             self.state_label.setText("● No data")
-            self.state_label.setStyleSheet(
-                "color: #6e7a8e; font-size: 16px; font-weight: bold;"
-            )
+            self.state_label.setStyleSheet("color: #6e7a8e; font-size: 16px; font-weight: bold;")
             return
 
-        state = status.get("state", "unknown")
         color = {
             "printing": "#4CAF50",
             "paused":   "#FFC107",
             "error":    "#f44336",
-        }.get(state, "#6e7a8e")
+        }.get(status.state, "#6e7a8e")
 
-        self.state_label.setText(f"● {state.capitalize()}")
-        self.state_label.setStyleSheet(
-            f"color: {color}; font-size: 16px; font-weight: bold;"
-        )
+        self.state_label.setText(f"● {status.state.capitalize()}")
+        self.state_label.setStyleSheet(f"color: {color}; font-size: 16px; font-weight: bold;")
 
-        filename = status.get("filename", "")
-        self.filename_label.setText(
-            filename[:40] + "…" if len(filename) > 40 else filename
-        )
+        fname = status.filename or ""
+        self.filename_label.setText(fname[:40] + "…" if len(fname) > 40 else fname)
 
-        progress_pct = int(status.get("progress", 0.0) * 100)
-        self.progress_bar.setValue(progress_pct)
+        self.progress_bar.setValue(int(status.progress * 100))
 
-        n_t = status.get("nozzle_temp", 0.0)
-        n_g = status.get("nozzle_target", 0.0)
-        self.nozzle_label.setText(f"{n_t:.0f} °C / {n_g:.0f} °C")
+        self.nozzle_label.setText(f"{status.nozzle_temp:.0f} °C / {status.nozzle_target:.0f} °C")
+        self.bed_label.setText(f"{status.bed_temp:.0f} °C / {status.bed_target:.0f} °C")
 
-        b_t = status.get("bed_temp", 0.0)
-        b_g = status.get("bed_target", 0.0)
-        self.bed_label.setText(f"{b_t:.0f} °C / {b_g:.0f} °C")
+        elapsed = status.format_time(status.time_elapsed)
+        remaining = status.format_time(status.time_remaining)
+        self.time_label.setText(f"{elapsed} / {remaining}")
 
 
 # ── Main tab ─────────────────────────────────────────────────────────── #
 
 class PrintersTab(QWidget):
-    """Creality K1 printer dashboard."""
+    """3D Printer dashboard — OctoPrint / Moonraker."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -270,8 +283,8 @@ class PrintersTab(QWidget):
         self._refresh_timer.setInterval(10_000)
         self._refresh_timer.timeout.connect(self._fetch_status)
 
-        self._update_ui_connected(k1_manager.is_connected)
-        if k1_manager.is_connected:
+        self._update_ui_connected(printer_agent.is_connected)
+        if printer_agent.is_connected:
             self._fetch_status()
 
     # ── Header ──────────────────────────────────────────────────────── #
@@ -282,7 +295,7 @@ class PrintersTab(QWidget):
         text_col = QVBoxLayout()
         title = TitleLabel("Printers", self)
         title.setStyleSheet("font-size: 28px; font-weight: bold; color: white;")
-        sub = BodyLabel("Creality K1 — Klipper control interface.", self)
+        sub = BodyLabel("OctoPrint / Moonraker — REST API control.", self)
         sub.setStyleSheet("color: #6e7a8e; font-size: 14px;")
         text_col.addWidget(title)
         text_col.addWidget(sub)
@@ -312,50 +325,100 @@ class PrintersTab(QWidget):
         playout.setContentsMargins(24, 16, 24, 16)
         playout.setSpacing(16)
 
-        ip_col = QVBoxLayout()
-        ip_col.setSpacing(6)
-        ip_label = QLabel("IP Address")
-        ip_label.setStyleSheet("color: #6e7a8e; font-size: 12px; font-weight: bold;")
-        self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText("e.g. 192.168.1.100")
-        self.ip_input.setText(settings.get("k1.ip", ""))
-        self.ip_input.setStyleSheet(_INPUT_STYLE)
-        self.ip_input.setMinimumWidth(200)
-        ip_col.addWidget(ip_label)
-        ip_col.addWidget(self.ip_input)
-        playout.addLayout(ip_col)
+        # Type
+        type_col = QVBoxLayout()
+        type_col.setSpacing(6)
+        type_col.addWidget(self._field_label("Type"))
+        self.type_combo = QComboBox()
+        self.type_combo.setStyleSheet(_COMBO_STYLE)
+        self.type_combo.addItem("Moonraker / Klipper", "moonraker")
+        self.type_combo.addItem("OctoPrint", "octoprint")
+        saved_type = settings.get("printer.type", "moonraker")
+        idx = self.type_combo.findData(saved_type)
+        if idx >= 0:
+            self.type_combo.setCurrentIndex(idx)
+        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        type_col.addWidget(self.type_combo)
+        playout.addLayout(type_col)
 
-        pw_col = QVBoxLayout()
-        pw_col.setSpacing(6)
-        pw_label = QLabel("SSH Password")
-        pw_label.setStyleSheet("color: #6e7a8e; font-size: 12px; font-weight: bold;")
-        self.pw_input = QLineEdit()
-        self.pw_input.setEchoMode(QLineEdit.Password)
-        self.pw_input.setPlaceholderText("root password")
-        self.pw_input.setText(settings.get("k1.password", ""))
-        self.pw_input.setStyleSheet(_INPUT_STYLE)
-        self.pw_input.setMinimumWidth(200)
-        pw_col.addWidget(pw_label)
-        pw_col.addWidget(self.pw_input)
-        playout.addLayout(pw_col)
+        # Host
+        host_col = QVBoxLayout()
+        host_col.setSpacing(6)
+        host_col.addWidget(self._field_label("Host / IP"))
+        self.host_input = QLineEdit()
+        self.host_input.setPlaceholderText("e.g. 192.168.1.100")
+        self.host_input.setText(settings.get("printer.host", ""))
+        self.host_input.setStyleSheet(_INPUT_STYLE)
+        self.host_input.setMinimumWidth(180)
+        host_col.addWidget(self.host_input)
+        playout.addLayout(host_col)
+
+        # Port
+        port_col = QVBoxLayout()
+        port_col.setSpacing(6)
+        port_col.addWidget(self._field_label("Port"))
+        self.port_input = QLineEdit()
+        self.port_input.setPlaceholderText("80")
+        self.port_input.setText(str(settings.get("printer.port", 80) or 80))
+        self.port_input.setStyleSheet(_INPUT_STYLE)
+        self.port_input.setMaximumWidth(80)
+        port_col.addWidget(self.port_input)
+        playout.addLayout(port_col)
+
+        # API Key (OctoPrint only)
+        key_col = QVBoxLayout()
+        key_col.setSpacing(6)
+        key_col.addWidget(self._field_label("API Key (OctoPrint)"))
+        self.key_input = QLineEdit()
+        self.key_input.setEchoMode(QLineEdit.Password)
+        self.key_input.setPlaceholderText("optional")
+        self.key_input.setText(settings.get("printer.api_key", ""))
+        self.key_input.setStyleSheet(_INPUT_STYLE)
+        self.key_input.setMinimumWidth(160)
+        key_col.addWidget(self.key_input)
+        playout.addLayout(key_col)
 
         playout.addStretch()
 
+        # Buttons column
         btn_col = QVBoxLayout()
+        btn_col.setSpacing(8)
         btn_col.addStretch()
+
+        self.discover_btn = QPushButton("Discover")
+        self.discover_btn.setStyleSheet(_BTN_OUTLINE)
+        self.discover_btn.setFixedWidth(100)
+        self.discover_btn.setToolTip("mDNS auto-discovery (needs zeroconf)")
+        self.discover_btn.clicked.connect(self._on_discover)
+        btn_col.addWidget(self.discover_btn)
+
         self.connect_btn = QPushButton("Connect")
         self.connect_btn.setStyleSheet(_BTN_PRIMARY)
-        self.connect_btn.setFixedWidth(120)
+        self.connect_btn.setFixedWidth(100)
         self.connect_btn.clicked.connect(self._on_connect)
         btn_col.addWidget(self.connect_btn)
-        playout.addLayout(btn_col)
 
+        playout.addLayout(btn_col)
         parent_layout.addWidget(panel)
+
+        self._update_key_visibility()
+
+    def _field_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: #6e7a8e; font-size: 12px; font-weight: bold;")
+        return lbl
+
+    def _on_type_changed(self):
+        self._update_key_visibility()
+
+    def _update_key_visibility(self):
+        is_octo = self.type_combo.currentData() == "octoprint"
+        self.key_input.setVisible(is_octo)
 
     # ── Status card ──────────────────────────────────────────────────── #
 
     def _setup_status_card(self, parent_layout):
-        self.status_card = K1StatusCard(self)
+        self.status_card = PrinterStatusCard(self)
         parent_layout.addWidget(self.status_card)
 
     # ── Control buttons ──────────────────────────────────────────────── #
@@ -389,11 +452,17 @@ class PrintersTab(QWidget):
     # ── Logic ────────────────────────────────────────────────────────── #
 
     def _on_connect(self):
-        ip = self.ip_input.text().strip()
-        pw = self.pw_input.text()
-        settings.set("k1.ip", ip)
-        settings.set("k1.password", pw)
-        k1_manager.reload_config()
+        host = self.host_input.text().strip()
+        port_str = self.port_input.text().strip()
+        port = int(port_str) if port_str.isdigit() else 80
+        ptype = self.type_combo.currentData()
+        api_key = self.key_input.text().strip()
+
+        settings.set("printer.host", host)
+        settings.set("printer.port", port)
+        settings.set("printer.type", ptype)
+        settings.set("printer.api_key", api_key)
+        printer_agent.reload_config()
 
         self.connect_btn.setText("Connecting…")
         self.connect_btn.setEnabled(False)
@@ -411,16 +480,39 @@ class PrintersTab(QWidget):
         if ok:
             self._fetch_status()
 
+    def _on_discover(self):
+        self.discover_btn.setText("Scanning…")
+        self.discover_btn.setEnabled(False)
+        self._disc_thread = DiscoverThread()
+        self._disc_thread.found.connect(self._on_discover_result)
+        self._disc_thread.start()
+
+    def _on_discover_result(self, printers: list):
+        self.discover_btn.setText("Discover")
+        self.discover_btn.setEnabled(True)
+        if printers:
+            p = printers[0]
+            self.host_input.setText(p["host"])
+            self.port_input.setText(str(p["port"]))
+            idx = self.type_combo.findData(p["type"])
+            if idx >= 0:
+                self.type_combo.setCurrentIndex(idx)
+            self.badge.setText(f"●  Found: {p['name']}")
+            self.badge.setStyleSheet(_BADGE_BASE + "color: #FFC107;")
+        else:
+            self.badge.setText("●  No printers found")
+            self.badge.setStyleSheet(_BADGE_BASE + "color: #f44336;")
+
     def _fetch_status(self):
-        if not k1_manager.is_connected:
+        if not printer_agent.is_connected:
             return
         self._fetch_thread = StatusFetchThread()
         self._fetch_thread.status_found.connect(self._on_status)
         self._fetch_thread.start()
 
-    def _on_status(self, status: dict):
+    def _on_status(self, status):
         self.status_card.update_status(status)
-        state = status.get("state", "")
+        state = status.state if status else ""
         if state != self._last_state:
             self._last_state = state
             self._update_control_buttons(state)
