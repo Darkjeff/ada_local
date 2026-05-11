@@ -11,14 +11,15 @@ from typing import Optional
 from config import OLLAMA_URL
 from core.settings_store import settings
 
-# Ordered smallest → largest. moondream (1.6B) is tried first for speed.
-_VISION_MODEL_FALLBACK = "moondream"
+# llava-phi3 confirmed working via /api/chat with num_gpu=0 on this hardware.
+# moondream times out at 180s in CPU mode; gemma4 is last resort (360s).
+_VISION_MODEL_FALLBACK = "llava-phi3"
 
 _DEFAULT_PROMPT = (
     "Describe what you see in detail in French language. "
     "Be concise and precise. Answer in French only."
 )
-_VISION_MODEL_CASCADE = ["moondream", "llava-phi3", "gemma4:latest"]
+_VISION_MODEL_CASCADE = ["llava-phi3", "gemma4:latest", "moondream"]
 
 def _vision_model() -> str:
     return settings.get("models.vision", _VISION_MODEL_FALLBACK) or _VISION_MODEL_FALLBACK
