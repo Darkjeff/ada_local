@@ -13,7 +13,7 @@ from qfluentwidgets import (
 
 from gui.components.message_bubble import MessageBubble
 from gui.components import ThinkingExpander
-# We will replace local ToggleSwitch with qfluentwidgets.SwitchButton
+from gui.components.camera_preview import CameraLiveWidget
 from core.history import history_manager
 
 
@@ -160,21 +160,42 @@ class ChatTab(QWidget):
         self.camera_btn.clicked.connect(self._on_camera_clicked)
 
     def _on_camera_clicked(self):
+        """Open live webcam preview panel in the chat area."""
         self.camera_btn.setEnabled(False)
-        self.set_status("📷 Capture en cours…")
-        self._vision_thread = _VisionThread()
-        self._vision_thread.captured.connect(self._on_vision_captured)
+        self._live_widget = CameraLiveWidget()
+        self._live_widget.captured.connect(self._on_live_captured)
+        self._live_widget.closed.connect(self._on_live_closed)
+
+        # Insert live widget above the input bar (before last stretch)
+        count = self.chat_container_layout.count()
+        self.chat_container_layout.insertWidget(count - 1, self._live_widget)
+        QTimer.singleShot(50, self.scroll_to_bottom)
+
+    def _on_live_captured(self, jpg_bytes: bytes):
+        """User clicked Capture — freeze preview, start vision analysis."""
+        import base64
+        img_b64 = base64.b64encode(jpg_bytes).decode("utf-8")
+        self._add_vision_preview(img_b64)
+        self.set_status("🤔 Analyse en cours…")
+
+        self._vision_thread = _VisionThread(jpg_bytes)
         self._vision_thread.done.connect(self._on_vision_done)
         self._vision_thread.start()
 
-    def _on_vision_captured(self, img_b64: str):
-        """Image captured — show preview immediately, before model responds."""
-        self._add_vision_preview(img_b64)
-        self.set_status("🤔 Analyse en cours…")
+    def _on_live_closed(self):
+        """User closed the preview without capturing."""
+        self.camera_btn.setEnabled(True)
+        self.set_status("Ready")
+        if hasattr(self, "_live_widget") and self._live_widget:
+            self._live_widget = None
 
     def _on_vision_done(self, description: str):
         self.camera_btn.setEnabled(True)
         self.set_status("Ready")
+        # Remove the live widget now that we're done
+        if hasattr(self, "_live_widget") and self._live_widget:
+            self._live_widget.deleteLater()
+            self._live_widget = None
         if description:
             self.add_message_bubble("assistant", description)
 
@@ -341,33 +362,23 @@ class ChatTab(QWidget):
 
 
 class _VisionThread(QThread):
-    """Background thread: capture webcam frame + ask vision model to describe it.
+    """Sends a pre-captured JPEG frame to the vision model and emits the description."""
+    done = Signal(str)
 
-    Emits `captured` as soon as the frame is ready so the UI can show the
-    preview without waiting for the (slow) model inference.
-    """
-    captured = Signal(str)   # img_b64 — fires immediately after capture
-    done = Signal(str)       # description text — fires when model responds
+    def __init__(self, jpg_bytes: bytes):
+        super().__init__()
+        self._jpg_bytes = jpg_bytes
 
     def run(self):
         try:
-            from core.vision import capture_frame, _try_model, _vision_model
             import base64
+            from core.vision import _try_model, _vision_model, _VISION_MODEL_CASCADE
             from config import OLLAMA_URL
 
-            jpg = capture_frame()
-            if jpg is None:
-                self.done.emit("Impossible d'accéder à la webcam.")
-                return
-
-            img_b64 = base64.b64encode(jpg).decode("utf-8")
-            self.captured.emit(img_b64)   # show preview NOW
-
+            img_b64 = base64.b64encode(self._jpg_bytes).decode("utf-8")
             base_url = OLLAMA_URL.rstrip("/")
             prompt = "Décris ce que tu vois en détail. Sois concis et précis."
 
-            # Try models smallest → largest
-            from core.vision import _VISION_MODEL_CASCADE
             configured = _vision_model()
             models = [configured] + [m for m in _VISION_MODEL_CASCADE if m != configured]
 
