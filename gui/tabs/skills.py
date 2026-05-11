@@ -107,12 +107,19 @@ class SkillsTab(QWidget):
         self.detail_triggers.setWordWrap(True)
         right_layout.addWidget(self.detail_triggers)
 
+        self.always_badge = QLabel("⚡ Toujours actif — injecté dans chaque message")
+        self.always_badge.setStyleSheet(
+            "color: #f0c040; font-size: 11px; background: rgba(240,192,64,0.10); "
+            "padding: 6px 8px; border-radius: 6px;"
+        )
+        self.always_badge.setVisible(False)
+        right_layout.addWidget(self.always_badge)
+
         body_label = QLabel("Contenu du skill :")
         body_label.setStyleSheet("color: #8a8a8a; font-size: 11px; margin-top: 6px;")
         right_layout.addWidget(body_label)
 
         self.detail_body = QTextEdit()
-        self.detail_body.setReadOnly(True)
         self.detail_body.setStyleSheet(
             "background: rgba(0,0,0,0.2); border-radius: 6px; "
             "color: #c8c8c8; font-family: 'Consolas', monospace; font-size: 12px;"
@@ -125,6 +132,10 @@ class SkillsTab(QWidget):
         self.open_btn.clicked.connect(self._open_folder)
         btn_row.addWidget(self.open_btn)
         btn_row.addStretch()
+        self.save_btn = PrimaryPushButton(FIF.SAVE, "Sauvegarder")
+        self.save_btn.setEnabled(False)
+        self.save_btn.clicked.connect(self._on_save)
+        btn_row.addWidget(self.save_btn)
         right_layout.addLayout(btn_row)
 
         splitter.addWidget(right)
@@ -143,12 +154,14 @@ class SkillsTab(QWidget):
         skill_manager.reload()
         self.skill_list.clear()
         for skill in skill_manager.skills:
-            item = QListWidgetItem(f"  {skill.name}")
+            prefix = "⚡ " if skill.always else "  "
+            item = QListWidgetItem(f"{prefix}{skill.name}")
             item.setData(Qt.UserRole, skill.name)
             self.skill_list.addItem(item)
         count = len(skill_manager.skills)
+        always_count = len(skill_manager.always_skills)
         self.footer.setText(
-            f"{count} skill(s) chargé(s) depuis {SKILLS_DIR}"
+            f"{count} skill(s) chargé(s) · {always_count} toujours actif(s) · {SKILLS_DIR}"
         )
 
     def _filter(self, text: str):
@@ -166,12 +179,48 @@ class SkillsTab(QWidget):
         if not skill:
             return
         self._selected_skill = skill
-        self.detail_name.setText(skill.name)
+        self.detail_name.setText(("⚡ " if skill.always else "") + skill.name)
         self.detail_desc.setText(skill.description or "Pas de description.")
-        triggers_text = "  ·  ".join(skill.triggers) if skill.triggers else "—"
-        self.detail_triggers.setText(f"Triggers : {triggers_text}")
+
+        self.always_badge.setVisible(skill.always)
+        if skill.always:
+            self.detail_triggers.setVisible(False)
+        else:
+            self.detail_triggers.setVisible(True)
+            triggers_text = "  ·  ".join(skill.triggers) if skill.triggers else "—"
+            self.detail_triggers.setText(f"Triggers : {triggers_text}")
+
         self.detail_body.setPlainText(skill.body)
         self.open_btn.setEnabled(True)
+        self.save_btn.setEnabled(True)
+
+    def _on_save(self):
+        """Save the edited body back to the SKILL.md, preserving frontmatter."""
+        if not self._selected_skill:
+            return
+        try:
+            path = self._selected_skill.path
+            original = path.read_text(encoding="utf-8")
+            # Extract existing frontmatter block
+            import re
+            m = re.match(r"^(---[ \t]*\r?\n.*?\r?\n---[ \t]*\r?\n)", original, re.DOTALL)
+            frontmatter = m.group(1) if m else "---\n---\n"
+            new_content = frontmatter + self.detail_body.toPlainText().strip() + "\n"
+            path.write_text(new_content, encoding="utf-8")
+            skill_manager.reload()
+            InfoBar.success(
+                title="Sauvegardé",
+                content=f"Skill '{self._selected_skill.name}' mis à jour.",
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP_RIGHT, duration=3000, parent=self,
+            )
+        except Exception as e:
+            InfoBar.error(
+                title="Erreur de sauvegarde",
+                content=str(e),
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP_RIGHT, duration=4000, parent=self,
+            )
 
     def _on_reload(self):
         self._load_skills()

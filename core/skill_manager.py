@@ -43,7 +43,8 @@ class Skill:
     triggers: List[str]
     body: str
     path: Path
-    model: Optional[str] = None  # optional model override
+    model: Optional[str] = None
+    always: bool = False   # if True, injected on every message regardless of triggers
 
 
 class SkillManager:
@@ -96,6 +97,7 @@ class SkillManager:
                 body=body,
                 path=path,
                 model=meta.get("model"),
+                always=bool(meta.get("always", False)),
             )
         except Exception as e:
             print(f"[SkillManager] Error parsing {path}: {e}")
@@ -118,23 +120,39 @@ class SkillManager:
 
     def inject(self, messages: list, user_text: str) -> list:
         """
-        Return a new messages list with the matched skill body appended to the
-        system message. The original list is never mutated.
+        Return a new messages list with skill context injected into the system
+        message. Injects: all always-on skills first, then the best keyword match.
+        The original list is never mutated.
         """
-        skill = self.match(user_text)
-        if not skill:
+        if not self._loaded:
+            self.load()
+
+        always_skills = [s for s in self._skills if s.always]
+        keyword_skill = self.match(user_text)
+
+        to_inject = always_skills[:]
+        if keyword_skill and not keyword_skill.always:
+            to_inject.append(keyword_skill)
+
+        if not to_inject:
             return messages
+
+        extra = "\n\n".join(s.body for s in to_inject)
 
         new_messages = list(messages)
         if new_messages and new_messages[0].get("role") == "system":
             new_messages[0] = {
                 "role": "system",
-                "content": new_messages[0]["content"] + "\n\n" + skill.body,
+                "content": new_messages[0]["content"] + "\n\n" + extra,
             }
         else:
-            new_messages.insert(0, {"role": "system", "content": skill.body})
+            new_messages.insert(0, {"role": "system", "content": extra})
 
         return new_messages
+
+    @property
+    def always_skills(self) -> List[Skill]:
+        return [s for s in self.skills if s.always]
 
     # ── Public API ───────────────────────────────────────────────────────────
 
