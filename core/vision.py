@@ -39,7 +39,12 @@ def capture_frame(camera_index: int = 0) -> Optional[bytes]:
         if not ret or frame is None:
             print("[Vision] Failed to read frame")
             return None
-        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        # Resize to max 640px wide to keep payload small
+        h, w = frame.shape[:2]
+        if w > 640:
+            scale = 640 / w
+            frame = cv2.resize(frame, (640, int(h * scale)), interpolation=cv2.INTER_AREA)
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
         return bytes(buf)
     finally:
         cap.release()
@@ -94,7 +99,7 @@ def describe(
                 if text:
                     return {"success": True, "description": text, "image_b64": img_b64}
             else:
-                print(f"[Vision] {endpoint} → HTTP {r.status_code}")
+                print(f"[Vision] {endpoint} → HTTP {r.status_code}: {r.text[:200]}")
         except Exception as e:
             print(f"[Vision] {endpoint} failed: {e}")
 
