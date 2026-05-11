@@ -3,34 +3,12 @@ Pocket AI - Main Entry Point
 """
 
 import os
-import atexit
 
 # Must be set BEFORE any tokenizers/HuggingFace/loky import to prevent
 # semaphore leaks and segfault at shutdown caused by loky process pool.
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["LOKY_MAX_CPU_COUNT"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
-# Force joblib to use the threading backend instead of loky (process pool).
-# loky creates semaphores that leak at shutdown → segfault in resource_tracker.
-# Threading uses no semaphores and needs no cleanup.
-try:
-    import joblib
-    joblib.parallel_backend("threading")
-except Exception:
-    pass
-
-# Belt-and-suspenders: if loky was somehow already used, shut it down cleanly.
-def _cleanup_loky():
-    try:
-        from joblib.externals.loky import get_reusable_executor
-        get_reusable_executor().shutdown(wait=True, kill_workers=True)
-    except Exception:
-        pass
-
-atexit.register(_cleanup_loky)
 
 import warnings
 import sys
@@ -76,14 +54,9 @@ if __name__ == "__main__":
     splash.setIconSize(QSize(100, 100))
     splash.show()
     
-    # Pre-load semantic router in background (doesn't block UI)
-    def _warmup_router():
-        try:
-            from core.semantic_router import warmup
-            warmup()
-        except Exception as e:
-            print(f"[SemanticRouter] Warmup failed: {e}")
-    threading.Thread(target=_warmup_router, daemon=True).start()
+    # Warm up keyword router (instant, no ML)
+    from core.semantic_router import warmup
+    warmup()
 
     # Create main window
     window = MainWindow()
