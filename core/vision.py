@@ -79,7 +79,7 @@ def describe(
         }
         # OLLAMA_URL = "http://localhost:11434/api" → chat = OLLAMA_URL + "/chat"
         url = OLLAMA_URL.rstrip("/") + "/chat"
-        r = requests.post(url, json=payload, timeout=60)
+        r = requests.post(url, json=payload, timeout=120)
         r.raise_for_status()
         text = r.json().get("message", {}).get("content", "")
         return {"success": True, "description": text, "image_b64": img_b64}
