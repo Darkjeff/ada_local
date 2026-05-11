@@ -172,8 +172,14 @@ class ChatTab(QWidget):
         QTimer.singleShot(50, self.scroll_to_bottom)
 
     def _on_live_captured(self, jpg_bytes: bytes):
-        """User clicked Capture — freeze preview, start vision analysis."""
+        """User clicked Capture — close live widget, show frozen frame, start analysis."""
         import base64
+
+        # Remove live widget immediately
+        if hasattr(self, "_live_widget") and self._live_widget:
+            self._live_widget.deleteLater()
+            self._live_widget = None
+
         img_b64 = base64.b64encode(jpg_bytes).decode("utf-8")
         self._add_vision_preview(img_b64)
         self.set_status("🤔 Analyse en cours…")
@@ -192,10 +198,6 @@ class ChatTab(QWidget):
     def _on_vision_done(self, description: str):
         self.camera_btn.setEnabled(True)
         self.set_status("Ready")
-        # Remove the live widget now that we're done
-        if hasattr(self, "_live_widget") and self._live_widget:
-            self._live_widget.deleteLater()
-            self._live_widget = None
         if description:
             self.add_message_bubble("assistant", description)
 

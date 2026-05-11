@@ -88,12 +88,16 @@ class CameraLiveWidget(QFrame):
         # Video display label
         self.video_label = QLabel()
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setMinimumSize(480, 270)
+        self.video_label.setMinimumHeight(270)
+        self.video_label.setSizePolicy(
+            self.video_label.sizePolicy().horizontalPolicy(),
+            self.video_label.sizePolicy().verticalPolicy()
+        )
         self.video_label.setStyleSheet(
             "background: #000; border-radius: 8px;"
         )
         self.video_label.setText("Initialisation de la caméra…")
-        layout.addWidget(self.video_label)
+        layout.addWidget(self.video_label, stretch=1)
 
         # Buttons row
         btn_row = QHBoxLayout()
@@ -121,7 +125,8 @@ class CameraLiveWidget(QFrame):
         pixmap.loadFromData(jpg_bytes)
         if not pixmap.isNull():
             self.video_label.setPixmap(
-                pixmap.scaled(self.video_label.size(),
+                pixmap.scaled(self.video_label.width(),
+                              self.video_label.width() * pixmap.height() // pixmap.width(),
                               Qt.KeepAspectRatio,
                               Qt.SmoothTransformation)
             )
