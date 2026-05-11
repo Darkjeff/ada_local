@@ -15,6 +15,7 @@ from core.settings_store import settings
 class PrinterType(str, Enum):
     MOONRAKER = "moonraker"
     OCTOPRINT = "octoprint"
+    K1_SSH = "k1_ssh"
 
 
 @dataclass
@@ -122,7 +123,11 @@ class PrinterAgent:
             self._connected = False
             return False
         try:
-            if self._type == PrinterType.MOONRAKER:
+            if self._type == PrinterType.K1_SSH:
+                from core.k1_control import K1Manager
+                self._k1 = K1Manager()
+                self._connected = self._k1.connect()
+            elif self._type == PrinterType.MOONRAKER:
                 data = self._get("/printer/info")
                 self._connected = data is not None
             else:
@@ -139,9 +144,27 @@ class PrinterAgent:
     def get_status(self) -> Optional[PrintStatus]:
         if not self._connected:
             return None
+        if self._type == PrinterType.K1_SSH:
+            return self._status_k1_ssh()
         if self._type == PrinterType.MOONRAKER:
             return self._status_moonraker()
         return self._status_octoprint()
+
+    def _status_k1_ssh(self) -> Optional[PrintStatus]:
+        s = self._k1.get_status()
+        if not s:
+            return None
+        return PrintStatus(
+            state=s.get("state", "unknown"),
+            progress=s.get("progress", 0.0),
+            filename=s.get("filename", ""),
+            nozzle_temp=s.get("nozzle_temp", 0.0),
+            nozzle_target=s.get("nozzle_target", 0.0),
+            bed_temp=s.get("bed_temp", 0.0),
+            bed_target=s.get("bed_target", 0.0),
+            time_elapsed=None,
+            time_remaining=None,
+        )
 
     def _status_moonraker(self) -> Optional[PrintStatus]:
         data = self._get(
@@ -202,16 +225,22 @@ class PrinterAgent:
     # ------------------------------------------------------------------ #
 
     def pause_print(self) -> bool:
+        if self._type == PrinterType.K1_SSH:
+            return self._k1.pause_print()
         if self._type == PrinterType.MOONRAKER:
             return self._post("/printer/print/pause")
         return self._post("/api/job", {"command": "pause"})
 
     def resume_print(self) -> bool:
+        if self._type == PrinterType.K1_SSH:
+            return self._k1.resume_print()
         if self._type == PrinterType.MOONRAKER:
             return self._post("/printer/print/resume")
         return self._post("/api/job", {"command": "start"})
 
     def cancel_print(self) -> bool:
+        if self._type == PrinterType.K1_SSH:
+            return self._k1.cancel_print()
         if self._type == PrinterType.MOONRAKER:
             return self._post("/printer/print/cancel")
         return self._post("/api/job", {"command": "cancel"})

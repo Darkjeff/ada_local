@@ -333,6 +333,7 @@ class PrintersTab(QWidget):
         self.type_combo.setStyleSheet(_COMBO_STYLE)
         self.type_combo.addItem("Moonraker / Klipper", "moonraker")
         self.type_combo.addItem("OctoPrint", "octoprint")
+        self.type_combo.addItem("Creality K1 (SSH)", "k1_ssh")
         saved_type = settings.get("printer.type", "moonraker")
         idx = self.type_combo.findData(saved_type)
         if idx >= 0:
@@ -365,10 +366,11 @@ class PrintersTab(QWidget):
         port_col.addWidget(self.port_input)
         playout.addLayout(port_col)
 
-        # API Key (OctoPrint only)
+        # API Key (OctoPrint) / SSH Password (K1)
         key_col = QVBoxLayout()
         key_col.setSpacing(6)
-        key_col.addWidget(self._field_label("API Key (OctoPrint)"))
+        self._key_label = self._field_label("API Key (OctoPrint)")
+        key_col.addWidget(self._key_label)
         self.key_input = QLineEdit()
         self.key_input.setEchoMode(QLineEdit.Password)
         self.key_input.setPlaceholderText("optional")
@@ -412,8 +414,17 @@ class PrintersTab(QWidget):
         self._update_key_visibility()
 
     def _update_key_visibility(self):
-        is_octo = self.type_combo.currentData() == "octoprint"
-        self.key_input.setVisible(is_octo)
+        ptype = self.type_combo.currentData()
+        if ptype == "octoprint":
+            self.key_input.setVisible(True)
+            self._key_label.setText("API Key (OctoPrint)")
+            self.key_input.setPlaceholderText("optional")
+        elif ptype == "k1_ssh":
+            self.key_input.setVisible(True)
+            self._key_label.setText("SSH Password")
+            self.key_input.setPlaceholderText("root password")
+        else:
+            self.key_input.setVisible(False)
 
     # ── Status card ──────────────────────────────────────────────────── #
 
@@ -462,6 +473,10 @@ class PrintersTab(QWidget):
         settings.set("printer.port", port)
         settings.set("printer.type", ptype)
         settings.set("printer.api_key", api_key)
+        # For K1 SSH: reuse k1.ip and k1.password so k1_control.py picks them up
+        if ptype == "k1_ssh":
+            settings.set("k1.ip", host)
+            settings.set("k1.password", api_key)
         printer_agent.reload_config()
 
         self.connect_btn.setText("Connecting…")
