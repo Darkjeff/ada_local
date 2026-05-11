@@ -10,12 +10,9 @@ from typing import Optional
 from config import OLLAMA_URL
 from core.settings_store import settings
 
-_VISION_MODEL_FALLBACK = "moondream"
-_VISION_MODEL_CANDIDATES = ["moondream", "llava:7b", "gemma4:latest"]
-
+_VISION_MODEL_FALLBACK = "llava-phi3"
 
 def _vision_model() -> str:
-    # Use explicit vision model setting if configured, else moondream
     return settings.get("models.vision", _VISION_MODEL_FALLBACK) or _VISION_MODEL_FALLBACK
 
 
