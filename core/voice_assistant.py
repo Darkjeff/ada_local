@@ -17,12 +17,16 @@ from core.llm import route_query, should_bypass_router, http_session
 from core.model_persistence import ensure_qwen_loaded, mark_qwen_used, unload_qwen
 from core.tts import tts, SentenceBuffer
 from core.function_executor import executor as function_executor
+from core.semantic_router import get_route as semantic_route
 
 # Functions that are actions (not passthrough)
 ACTION_FUNCTIONS = {
-    "control_light", "set_timer", "set_alarm", 
+    "control_light", "set_timer", "set_alarm",
     "create_calendar_event", "add_task", "web_search"
 }
+
+# Semantic routes that bypass Function Gemma entirely
+SEMANTIC_BYPASS = {"qwen_basic", "qwen_thinking"}
 
 
 class VoiceAssistant(QObject):
@@ -140,22 +144,49 @@ class VoiceAssistant(QObject):
     def _process_query(self, user_text: str):
         """Process user query through the pipeline."""
         try:
-            # Step 1: Route through Function Gemma
+            # ── Step 1: Semantic Router (fast, ~5ms) ──────────────────
             if should_bypass_router(user_text):
-                func_name = "nonthinking"
-                params = {"prompt": user_text}
+                semantic = "qwen_basic"
             else:
-                func_name, params = route_query(user_text)
-            
-            print(f"{GRAY}[VoiceAssistant] Routed to: {func_name}{RESET}")
-            
-            # Step 2: Handle based on function type
+                semantic = semantic_route(user_text)
+
+            print(f"{GRAY}[VoiceAssistant] Semantic: {semantic}{RESET}")
+
+            # ── Step 2: Route based on semantic decision ───────────────
+
+            if semantic == "qwen_basic":
+                # Simple conversation → Qwen direct, no thinking
+                self._stream_qwen_response(user_text, False)
+                return
+
+            if semantic == "qwen_thinking":
+                # Complex reasoning → Qwen with thinking
+                self._stream_qwen_response(user_text, True)
+                return
+
+            if semantic == "cad_generation":
+                # CAD model generation → CAD Agent (future)
+                print(f"{CYAN}[VoiceAssistant] → CAD Agent (not yet implemented){RESET}")
+                self._stream_qwen_response(
+                    f"L'utilisateur veut: {user_text}. Dis-lui que la génération 3D est en cours d'intégration.", False
+                )
+                return
+
+            if semantic == "print_control":
+                # Printer control → Printer Agent (future)
+                print(f"{CYAN}[VoiceAssistant] → Printer Agent (not yet implemented){RESET}")
+                self._stream_qwen_response(
+                    f"L'utilisateur veut: {user_text}. Dis-lui que le contrôle imprimante est en cours d'intégration.", False
+                )
+                return
+
+            # ── Step 3: function_gemma → Function Gemma (existing flow) ──
+            func_name, params = route_query(user_text)
+            print(f"{GRAY}[VoiceAssistant] Function Gemma: {func_name}{RESET}")
+
             if func_name in ACTION_FUNCTIONS:
-                # Execute action function
                 result = function_executor.execute(func_name, params)
-                response_text = result.get("message", "Done.")
-                
-                # Emit GUI update signals for specific actions
+
                 if func_name == "set_timer" and result.get("success"):
                     seconds = result.get("data", {}).get("seconds", 0)
                     label = result.get("data", {}).get("label", "Timer")
@@ -166,24 +197,19 @@ class VoiceAssistant(QObject):
                     self.calendar_updated.emit()
                 elif func_name == "add_task" and result.get("success"):
                     self.task_added.emit()
-                
-                # Generate Qwen response with context
+
                 self._generate_response_with_context(func_name, result, user_text)
-                
+
             elif func_name == "get_system_info":
-                # Get system info
                 result = function_executor.execute(func_name, params)
                 self._generate_response_with_context(func_name, result, user_text, enable_thinking=True)
-                
+
             elif func_name in ("thinking", "nonthinking"):
-                # Direct Qwen passthrough
-                enable_thinking = (func_name == "thinking")
-                self._stream_qwen_response(user_text, enable_thinking)
-            
+                self._stream_qwen_response(user_text, func_name == "thinking")
+
             else:
-                # Fallback to nonthinking
                 self._stream_qwen_response(user_text, False)
-                
+
         except Exception as e:
             error_msg = f"Error processing query: {e}"
             print(f"{GRAY}[VoiceAssistant] {error_msg}{RESET}")
