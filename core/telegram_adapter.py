@@ -1,0 +1,281 @@
+"""
+Telegram Adapter — long-polling bot that routes messages through the ADA pipeline.
+
+Architecture:
+  - Daemon thread runs the polling loop (no asyncio, pure requests)
+  - Each Telegram chat_id gets its own isolated session (memory, history)
+  - Text messages → Ollama (sync, non-streaming) + skill + memory injection
+  - Photos → vision pipeline (llava-phi3)
+  - /help, /status, /clear slash commands
+"""
+
+import base64
+import json
+import threading
+import time
+from datetime import datetime
+from typing import Optional
+
+import requests
+
+from config import OLLAMA_URL, RESPONDER_MODEL
+from core.memory_store import memory_store
+from core.skill_manager import skill_manager
+from core.settings_store import settings
+
+_API_BASE = "https://api.telegram.org/bot{token}"
+
+_SYSTEM_PROMPT = """\
+Tu es ADA, une assistante IA locale tournant sur l'ordinateur de Jeff. \
+Tu réponds toujours en français, de façon concise et directe. \
+Tu es accessible via Telegram — sois utile, précise et naturelle."""
+
+_HELP_TEXT = """\
+🤖 *ADA via Telegram*
+
+Commandes disponibles :
+/help — afficher ce message
+/status — état du système
+/clear — effacer l'historique de cette conversation
+
+Envoie n'importe quel message texte ou une photo pour interagir avec ADA."""
+
+
+class TelegramAdapter:
+    """
+    Long-polling Telegram bot that bridges to the ADA pipeline.
+    Call start() once at application launch; it spawns a daemon thread.
+    """
+
+    def __init__(self):
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._offset = 0
+        # Per-chat history: {chat_id: [{"role": ..., "content": ...}, ...]}
+        self._histories: dict[int, list] = {}
+        self._lock = threading.Lock()
+
+    # ── Public ────────────────────────────────────────────────────────────────
+
+    def start(self):
+        token = settings.get("telegram.token", "").strip()
+        if not token:
+            print("[Telegram] No token configured — adapter disabled.")
+            return
+        if not settings.get("telegram.enabled", False):
+            print("[Telegram] Adapter disabled in settings.")
+            return
+        if self._running:
+            return
+
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="TelegramAdapter"
+        )
+        self._thread.start()
+        print("[Telegram] Adapter started.")
+
+    def stop(self):
+        self._running = False
+
+    def restart(self):
+        """Call after settings change (new token or toggle)."""
+        self.stop()
+        time.sleep(0.5)
+        self.start()
+
+    # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _api(self, method: str, **kwargs) -> Optional[dict]:
+        token = settings.get("telegram.token", "").strip()
+        url = f"https://api.telegram.org/bot{token}/{method}"
+        try:
+            r = requests.post(url, json=kwargs, timeout=15)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            print(f"[Telegram] API error ({method}): {e}")
+            return None
+
+    def _get_updates(self) -> list:
+        token = settings.get("telegram.token", "").strip()
+        url = f"https://api.telegram.org/bot{token}/getUpdates"
+        try:
+            r = requests.post(
+                url,
+                json={"offset": self._offset, "timeout": 30,
+                      "allowed_updates": ["message"]},
+                timeout=40,
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data.get("result", [])
+        except requests.exceptions.ReadTimeout:
+            return []
+        except Exception as e:
+            print(f"[Telegram] getUpdates error: {e}")
+            time.sleep(5)
+            return []
+
+    def _send(self, chat_id: int, text: str):
+        """Send a message, splitting at 4096 chars if needed."""
+        max_len = 4096
+        while text:
+            chunk, text = text[:max_len], text[max_len:]
+            self._api("sendMessage", chat_id=chat_id, text=chunk,
+                      parse_mode="Markdown")
+
+    def _send_typing(self, chat_id: int):
+        self._api("sendChatAction", chat_id=chat_id, action="typing")
+
+    def _run(self):
+        print("[Telegram] Polling started.")
+        while self._running:
+            updates = self._get_updates()
+            for update in updates:
+                self._offset = update["update_id"] + 1
+                try:
+                    self._handle_update(update)
+                except Exception as e:
+                    print(f"[Telegram] Handler error: {e}")
+        print("[Telegram] Polling stopped.")
+
+    def _handle_update(self, update: dict):
+        msg = update.get("message")
+        if not msg:
+            return
+
+        chat_id = msg["chat"]["id"]
+        text = msg.get("text", "")
+        photo = msg.get("photo")
+
+        # Check allowed users (if configured)
+        allowed = settings.get("telegram.allowed_users", [])
+        if allowed and chat_id not in allowed:
+            return
+
+        # Slash commands
+        if text.startswith("/"):
+            self._handle_command(chat_id, text.split()[0].lower())
+            return
+
+        self._send_typing(chat_id)
+
+        if photo:
+            self._handle_photo(chat_id, photo, msg.get("caption", ""))
+        elif text:
+            self._handle_text(chat_id, text)
+
+    def _handle_command(self, chat_id: int, cmd: str):
+        if cmd in ("/help", "/start"):
+            self._send(chat_id, _HELP_TEXT)
+
+        elif cmd == "/status":
+            from datetime import datetime
+            now = datetime.now().strftime("%d/%m/%Y %H:%M")
+            stats = memory_store.stats()
+            reply = (
+                f"✅ *ADA opérationnelle*\n"
+                f"📅 {now}\n"
+                f"🧠 {stats.get('total', 0)} souvenirs · "
+                f"{stats.get('sessions', 0)} sessions\n"
+                f"💬 Historique actif : "
+                f"{len(self._histories.get(chat_id, []))} messages"
+            )
+            self._send(chat_id, reply)
+
+        elif cmd == "/clear":
+            with self._lock:
+                self._histories.pop(chat_id, None)
+            session_id = f"telegram_{chat_id}"
+            memory_store.clear_session(session_id)
+            self._send(chat_id, "🗑️ Historique effacé.")
+
+    def _handle_text(self, chat_id: int, text: str):
+        session_id = f"telegram_{chat_id}"
+
+        with self._lock:
+            history = self._histories.setdefault(chat_id, [])
+
+        # Build messages list
+        messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+        messages += history[-20:]  # Last 20 turns max
+
+        # Skill injection
+        messages = skill_manager.inject(messages, text)
+
+        # Memory context injection into system message
+        mem = memory_store.build_context(text, current_session_id=session_id)
+        if mem:
+            messages[0] = {
+                "role": "system",
+                "content": messages[0]["content"] + "\n\n" + mem,
+            }
+
+        messages.append({"role": "user", "content": text})
+
+        response = self._call_llm(messages)
+
+        # Save to history and memory
+        with self._lock:
+            history.append({"role": "user", "content": text})
+            history.append({"role": "assistant", "content": response})
+
+        memory_store.save(session_id, "user", text)
+        memory_store.save(session_id, "assistant", response)
+
+        self._send(chat_id, response)
+
+    def _handle_photo(self, chat_id: int, photo: list, caption: str):
+        # Get highest-resolution photo
+        file_info = self._api("getFile", file_id=photo[-1]["file_id"])
+        if not file_info:
+            self._send(chat_id, "❌ Impossible de récupérer la photo.")
+            return
+
+        file_path = file_info["result"]["file_path"]
+        token = settings.get("telegram.token", "").strip()
+        file_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+
+        try:
+            img_data = requests.get(file_url, timeout=30).content
+            img_b64 = base64.b64encode(img_data).decode()
+        except Exception as e:
+            print(f"[Telegram] Photo download error: {e}")
+            self._send(chat_id, "❌ Erreur lors du téléchargement de la photo.")
+            return
+
+        prompt = caption if caption else "Décris cette image en détail en français."
+
+        from core.vision import describe
+        result = describe(img_b64, prompt=prompt)
+
+        session_id = f"telegram_{chat_id}"
+        memory_store.save(session_id, "user", f"[Photo] {caption or '(sans légende)'}")
+        memory_store.save(session_id, "assistant", result)
+
+        self._send(chat_id, result)
+
+    def _call_llm(self, messages: list) -> str:
+        payload = {
+            "model": RESPONDER_MODEL,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "keep_alive": "5m",
+        }
+        try:
+            r = requests.post(
+                f"{OLLAMA_URL}/chat",
+                json=payload,
+                timeout=120,
+            )
+            r.raise_for_status()
+            return r.json().get("message", {}).get("content", "").strip()
+        except Exception as e:
+            print(f"[Telegram] LLM error: {e}")
+            return "❌ Erreur lors de la génération de la réponse."
+
+
+# Global singleton
+telegram_adapter = TelegramAdapter()

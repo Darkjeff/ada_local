@@ -462,6 +462,33 @@ class SettingsTab(ScrollArea):
         self.expandLayout.addWidget(self.voice_group)
 
         # ─────────────────────────────────────────────────────────────
+        # Telegram Group
+        # ─────────────────────────────────────────────────────────────
+        self.telegram_group = SettingCardGroup("Telegram Bot", self.scrollWidget)
+
+        self.telegram_enabled_card = SwitchCard(
+            FIF.SEND,
+            "Enable Telegram Bot",
+            "Receive and reply to messages via your Telegram bot",
+            "telegram.enabled",
+            self.telegram_group
+        )
+        self.telegram_enabled_card.checked_changed.connect(self._on_telegram_toggled)
+        self.telegram_group.addSettingCard(self.telegram_enabled_card)
+
+        self.telegram_token_card = TextInputCard(
+            FIF.EDIT,
+            "Bot Token",
+            "Token from @BotFather (e.g. 123456789:ABCdef…)",
+            "telegram.token",
+            "123456789:ABCdefGHIjklMNOpqrStUVwxYZ",
+            self.telegram_group
+        )
+        self.telegram_group.addSettingCard(self.telegram_token_card)
+
+        self.expandLayout.addWidget(self.telegram_group)
+
+        # ─────────────────────────────────────────────────────────────
         # Weather Location Group
         # ─────────────────────────────────────────────────────────────
         self.weather_group = SettingCardGroup("Weather Location", self.scrollWidget)
@@ -602,6 +629,25 @@ class SettingsTab(ScrollArea):
             duration=4000,
             parent=self.window()
         )
+
+    def _on_telegram_toggled(self, enabled: bool):
+        from core.telegram_adapter import telegram_adapter
+        if enabled:
+            telegram_adapter.restart()
+            InfoBar.success(
+                title="Telegram activé",
+                content="Le bot démarre en arrière-plan.",
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=3000, parent=self.window()
+            )
+        else:
+            telegram_adapter.stop()
+            InfoBar.info(
+                title="Telegram désactivé",
+                content="Le bot a été arrêté.",
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=2000, parent=self.window()
+            )
 
     def _discover_piper_voices(self) -> list:
         """Scan the Piper voices directory and return a sorted list of voice names."""

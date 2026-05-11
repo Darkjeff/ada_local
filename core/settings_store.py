@@ -44,6 +44,11 @@ DEFAULT_SETTINGS = {
     "k1": {
         "ip": "",
         "password": ""
+    },
+    "telegram": {
+        "enabled": False,
+        "token": "",
+        "allowed_users": []
     }
 }
 

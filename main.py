@@ -31,6 +31,10 @@ if __name__ == "__main__":
     from core.memory_consolidator import start_nightly_scheduler
     start_nightly_scheduler(hour=3)
 
+    # Start Telegram adapter (no-op if disabled or no token)
+    from core.telegram_adapter import telegram_adapter
+    telegram_adapter.start()
+
     app = QApplication(sys.argv)
     
     # Configure Aura Theme
