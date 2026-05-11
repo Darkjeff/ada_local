@@ -48,7 +48,12 @@ DEFAULT_SETTINGS = {
     "telegram": {
         "enabled": False,
         "token": "",
+        "owner_chat_id": "",
         "allowed_users": []
+    },
+    "briefing": {
+        "enabled": False,
+        "hour": 7
     }
 }
 

@@ -486,7 +486,54 @@ class SettingsTab(ScrollArea):
         )
         self.telegram_group.addSettingCard(self.telegram_token_card)
 
+        self.telegram_owner_card = TextInputCard(
+            FIF.PEOPLE,
+            "Owner Chat ID",
+            "Ton chat ID Telegram pour les briefings — utilise /myid dans le bot",
+            "telegram.owner_chat_id",
+            "123456789",
+            self.telegram_group
+        )
+        self.telegram_group.addSettingCard(self.telegram_owner_card)
+
         self.expandLayout.addWidget(self.telegram_group)
+
+        # ─────────────────────────────────────────────────────────────
+        # Morning Briefing Group
+        # ─────────────────────────────────────────────────────────────
+        self.briefing_group = SettingCardGroup("Morning Briefing", self.scrollWidget)
+
+        self.briefing_enabled_card = SwitchCard(
+            FIF.CALENDAR,
+            "Enable Morning Briefing",
+            "Envoie un résumé météo + news + mémoire chaque matin via Telegram",
+            "briefing.enabled",
+            self.briefing_group
+        )
+        self.briefing_group.addSettingCard(self.briefing_enabled_card)
+
+        self.briefing_hour_card = ComboBoxCard(
+            FIF.HISTORY,
+            "Heure du briefing",
+            "Heure à laquelle le briefing est envoyé",
+            ["5h", "6h", "7h", "8h", "9h", "10h"],
+            "briefing.hour_label",
+            self.briefing_group
+        )
+        self.briefing_hour_card.value_changed.connect(self._on_briefing_hour_changed)
+        self.briefing_group.addSettingCard(self.briefing_hour_card)
+
+        self.briefing_test_card = PushSettingCard(
+            "Tester maintenant",
+            FIF.SEND,
+            "Tester le briefing",
+            "Génère et envoie immédiatement un briefing de test",
+            self.briefing_group
+        )
+        self.briefing_test_card.clicked.connect(self._on_briefing_test)
+        self.briefing_group.addSettingCard(self.briefing_test_card)
+
+        self.expandLayout.addWidget(self.briefing_group)
 
         # ─────────────────────────────────────────────────────────────
         # Weather Location Group
@@ -628,6 +675,36 @@ class SettingsTab(ScrollArea):
             position=InfoBarPosition.TOP,
             duration=4000,
             parent=self.window()
+        )
+
+    def _on_briefing_hour_changed(self, label: str):
+        hour = int(label.replace("h", ""))
+        settings.set("briefing.hour", hour)
+
+    def _on_briefing_test(self):
+        self.briefing_test_card.button.setEnabled(False)
+        self.briefing_test_card.button.setText("Génération…")
+
+        import threading
+        def _run():
+            from core.morning_briefing import generate_briefing, deliver_briefing
+            text = generate_briefing()
+            deliver_briefing(text)
+            # Re-enable button on main thread
+            from PySide6.QtCore import QMetaObject, Qt
+            QMetaObject.invokeMethod(self, "_on_briefing_test_done", Qt.QueuedConnection)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    @Slot()
+    def _on_briefing_test_done(self):
+        self.briefing_test_card.button.setEnabled(True)
+        self.briefing_test_card.button.setText("Tester maintenant")
+        InfoBar.success(
+            title="Briefing envoyé",
+            content="Vérifie ton Telegram.",
+            orient=Qt.Horizontal, isClosable=True,
+            position=InfoBarPosition.TOP, duration=3000, parent=self.window()
         )
 
     def _on_telegram_toggled(self, enabled: bool):

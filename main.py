@@ -35,6 +35,11 @@ if __name__ == "__main__":
     from core.telegram_adapter import telegram_adapter
     telegram_adapter.start()
 
+    # Start morning briefing scheduler (no-op if disabled)
+    from core.morning_briefing import start_morning_scheduler
+    from core.settings_store import settings as _settings
+    start_morning_scheduler(hour=_settings.get("briefing.hour", 7))
+
     app = QApplication(sys.argv)
     
     # Configure Aura Theme

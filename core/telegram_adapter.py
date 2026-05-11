@@ -35,6 +35,7 @@ _HELP_TEXT = """\
 
 Commandes disponibles :
 /help — afficher ce message
+/myid — afficher ton chat ID (pour les briefings)
 /status — état du système
 /clear — effacer l'historique de cette conversation
 
@@ -169,6 +170,13 @@ class TelegramAdapter:
     def _handle_command(self, chat_id: int, cmd: str):
         if cmd in ("/help", "/start"):
             self._send(chat_id, _HELP_TEXT)
+
+        elif cmd == "/myid":
+            self._send(chat_id,
+                f"🆔 Ton chat ID Telegram : `{chat_id}`\n"
+                f"Copie cette valeur dans Settings → Telegram Bot → Owner Chat ID "
+                f"pour recevoir les briefings matinaux."
+            )
 
         elif cmd == "/status":
             from datetime import datetime
