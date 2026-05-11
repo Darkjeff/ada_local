@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont, QColor, QIcon
 from gui.app import MainWindow
 from qfluentwidgets import qconfig, Theme, SplashScreen
+import threading
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
@@ -29,6 +30,15 @@ if __name__ == "__main__":
     splash.setIconSize(QSize(100, 100))
     splash.show()
     
+    # Pre-load semantic router in background (doesn't block UI)
+    def _warmup_router():
+        try:
+            from core.semantic_router import warmup
+            warmup()
+        except Exception as e:
+            print(f"[SemanticRouter] Warmup failed: {e}")
+    threading.Thread(target=_warmup_router, daemon=True).start()
+
     # Create main window
     window = MainWindow()
     
