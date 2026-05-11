@@ -13,12 +13,20 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-# Explicitly shut down the loky reusable executor at exit so its worker
-# processes release semaphores before Python's resource_tracker runs.
+# Force joblib to use the threading backend instead of loky (process pool).
+# loky creates semaphores that leak at shutdown → segfault in resource_tracker.
+# Threading uses no semaphores and needs no cleanup.
+try:
+    import joblib
+    joblib.parallel_backend("threading")
+except Exception:
+    pass
+
+# Belt-and-suspenders: if loky was somehow already used, shut it down cleanly.
 def _cleanup_loky():
     try:
         from joblib.externals.loky import get_reusable_executor
-        get_reusable_executor().shutdown(wait=False, kill_workers=True)
+        get_reusable_executor().shutdown(wait=True, kill_workers=True)
     except Exception:
         pass
 
