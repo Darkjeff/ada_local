@@ -30,6 +30,7 @@ from gui.tabs.browser import BrowserTab
 from gui.tabs.home_automation import HomeAutomationTab
 from gui.tabs.printers import PrintersTab
 from gui.tabs.skills import SkillsTab
+from gui.tabs.memory import MemoryTab
 from gui.components.system_monitor import SystemMonitor
 from gui.components.voice_indicator import VoiceIndicator
 from core.llm import preload_models
@@ -218,6 +219,7 @@ class MainWindow(FluentWindow):
         self.browser_lazy = LazyTab(BrowserTab, "browserInterface")
         self.printers_lazy = LazyTab(PrintersTab, "printersInterface")
         self.skills_lazy = LazyTab(SkillsTab, "skillsInterface")
+        self.memory_lazy = LazyTab(MemoryTab, "memoryInterface")
 
         self.addSubInterface(self.chat_lazy, FIF.CHAT, "Chat")
         self.addSubInterface(self.planner_lazy, FIF.CALENDAR, "Planner")
@@ -226,6 +228,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.browser_lazy, FIF.GLOBE, "Web Agent")
         self.addSubInterface(self.printers_lazy, FIF.TILES, "Printers")
         self.addSubInterface(self.skills_lazy, FIF.BOOK_SHELF, "Skills")
+        self.addSubInterface(self.memory_lazy, FIF.HISTORY, "Memory")
         
         # Settings at bottom
         self.settings_lazy = LazyTab(SettingsTab, "settingsInterface")

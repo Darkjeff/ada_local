@@ -23,6 +23,10 @@ from qfluentwidgets import qconfig, Theme, SplashScreen
 import threading
 
 if __name__ == "__main__":
+    # Initialize persistent memory store before UI starts
+    from core.memory_store import memory_store
+    memory_store.initialize()
+
     app = QApplication(sys.argv)
     
     # Configure Aura Theme

@@ -11,6 +11,7 @@ from core.model_persistence import ensure_qwen_loaded, mark_qwen_used
 from core.settings_store import settings as app_settings
 from core.function_executor import executor as function_executor
 from core.skill_manager import skill_manager
+from core.memory_store import memory_store
 
 # Functions that are actions (not passthrough)
 ACTION_FUNCTIONS = {"control_light", "set_timer", "set_alarm", "create_calendar_event", "add_task", "web_search"}
@@ -259,15 +260,24 @@ class ChatWorker(QObject):
         ensure_exclusive_qwen(model)
         ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
 
-        # Inject matching skill into system message (non-destructive copy)
+        # Inject skill context + semantic memories into system message
         messages_with_skill = skill_manager.inject(self.messages, self.user_text)
+        mem_context = memory_store.build_context(
+            self.user_text, current_session_id=self.current_session_id
+        )
+        if mem_context and messages_with_skill:
+            messages_with_skill = list(messages_with_skill)
+            messages_with_skill[0] = {
+                "role": "system",
+                "content": messages_with_skill[0]["content"] + "\n\n" + mem_context,
+            }
 
         payload = {
             "model": model,
             "messages": messages_with_skill,
             "stream": True,
             "think": enable_thinking,
-            "keep_alive": "5m"  # Longer keep-alive for voice assistant
+            "keep_alive": "5m"
         }
         
         sentence_buffer = SentenceBuffer()
@@ -311,9 +321,15 @@ class ChatWorker(QObject):
                 tts.queue_sentence(rem)
         
         self.messages.append({'role': 'assistant', 'content': self.full_response})
-        
+
         if self.current_session_id:
             history_manager.add_message(self.current_session_id, "assistant", self.full_response)
+
+        # Persist to semantic memory
+        sid = self.current_session_id or "default"
+        memory_store.save(sid, "user", self.user_text)
+        if self.full_response:
+            memory_store.save(sid, "assistant", self.full_response)
 
 
 class ChatHandlers(QObject):
