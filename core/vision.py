@@ -10,11 +10,13 @@ from typing import Optional
 from config import OLLAMA_URL
 from core.settings_store import settings
 
-_VISION_MODEL_FALLBACK = "gemma4:latest"
+_VISION_MODEL_FALLBACK = "moondream"
+_VISION_MODEL_CANDIDATES = ["moondream", "llava:7b", "gemma4:latest"]
 
 
 def _vision_model() -> str:
-    return settings.get("models.web_agent", _VISION_MODEL_FALLBACK) or _VISION_MODEL_FALLBACK
+    # Use explicit vision model setting if configured, else moondream
+    return settings.get("models.vision", _VISION_MODEL_FALLBACK) or _VISION_MODEL_FALLBACK
 
 
 def capture_frame(camera_index: int = 0) -> Optional[bytes]:
