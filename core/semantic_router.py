@@ -15,10 +15,6 @@ Routes:
 import os
 from pathlib import Path
 
-# Prevents HuggingFace tokenizers from spawning child processes (loky),
-# which cause semaphore leaks and segfaults at Python shutdown.
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-
 VALID_ROUTES = {"qwen_basic", "qwen_thinking", "function_gemma", "cad_generation", "print_control", "vision"}
 
 _router = None

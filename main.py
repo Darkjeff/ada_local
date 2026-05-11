@@ -2,11 +2,17 @@
 Pocket AI - Main Entry Point
 """
 
+import os
+
+# Must be set BEFORE any tokenizers/HuggingFace/loky import to prevent
+# semaphore leaks and segfault at shutdown caused by loky process pool.
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["LOKY_MAX_CPU_COUNT"] = "1"
+
 import warnings
 import sys
 
 # Suppress ALL warnings globally before any other imports
-# This is aggressive but ensures clean console output
 warnings.simplefilter("ignore")
 
 from PySide6.QtCore import QSize
