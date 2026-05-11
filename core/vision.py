@@ -59,8 +59,8 @@ def _try_model(base: str, model: str, prompt: str, img_b64: str) -> Optional[str
     # num_gpu=0 → full CPU, avoids llama runner crash when VRAM < 4 GB
     cpu_options = {"num_gpu": 0, "num_thread": 4}
 
-    # Timeout scales with model size: moondream fast, gemma4 slow
-    timeout = 60 if "moondream" in model else (120 if "phi" in model else 300)
+    # Timeout scales with model size (CPU inference is slow)
+    timeout = 180 if "moondream" in model else (240 if "phi" in model else 360)
 
     endpoints = [
         (

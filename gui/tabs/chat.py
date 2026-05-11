@@ -163,20 +163,18 @@ class ChatTab(QWidget):
         self.camera_btn.setEnabled(False)
         self.set_status("📷 Capture en cours…")
         self._vision_thread = _VisionThread()
+        self._vision_thread.captured.connect(self._on_vision_captured)
         self._vision_thread.done.connect(self._on_vision_done)
         self._vision_thread.start()
 
-    def _on_vision_done(self, result: dict):
+    def _on_vision_captured(self, img_b64: str):
+        """Image captured — show preview immediately, before model responds."""
+        self._add_vision_preview(img_b64)
+        self.set_status("🤔 Analyse en cours…")
+
+    def _on_vision_done(self, description: str):
         self.camera_btn.setEnabled(True)
         self.set_status("Ready")
-        description = result.get("description", "")
-        img_b64 = result.get("image_b64")
-
-        # Show captured image as user "message" (pixmap label)
-        if img_b64:
-            self._add_vision_preview(img_b64)
-
-        # Show description as assistant bubble
         if description:
             self.add_message_bubble("assistant", description)
 
@@ -343,13 +341,42 @@ class ChatTab(QWidget):
 
 
 class _VisionThread(QThread):
-    """Background thread: capture webcam frame + ask gemma4 to describe it."""
-    done = Signal(dict)
+    """Background thread: capture webcam frame + ask vision model to describe it.
+
+    Emits `captured` as soon as the frame is ready so the UI can show the
+    preview without waiting for the (slow) model inference.
+    """
+    captured = Signal(str)   # img_b64 — fires immediately after capture
+    done = Signal(str)       # description text — fires when model responds
 
     def run(self):
         try:
-            from core.vision import describe
-            result = describe()
+            from core.vision import capture_frame, _try_model, _vision_model
+            import base64
+            from config import OLLAMA_URL
+
+            jpg = capture_frame()
+            if jpg is None:
+                self.done.emit("Impossible d'accéder à la webcam.")
+                return
+
+            img_b64 = base64.b64encode(jpg).decode("utf-8")
+            self.captured.emit(img_b64)   # show preview NOW
+
+            base_url = OLLAMA_URL.rstrip("/")
+            prompt = "Décris ce que tu vois en détail. Sois concis et précis."
+
+            # Try models smallest → largest
+            from core.vision import _VISION_MODEL_CASCADE
+            configured = _vision_model()
+            models = [configured] + [m for m in _VISION_MODEL_CASCADE if m != configured]
+
+            for m in models:
+                text = _try_model(base_url, m, prompt, img_b64)
+                if text:
+                    self.done.emit(text)
+                    return
+
+            self.done.emit("Erreur : aucun modèle vision n'a pu répondre.")
         except Exception as e:
-            result = {"success": False, "description": f"Erreur : {e}", "image_b64": None}
-        self.done.emit(result)
+            self.done.emit(f"Erreur : {e}")
