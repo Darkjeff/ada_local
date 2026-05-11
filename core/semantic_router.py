@@ -20,20 +20,41 @@ VALID_ROUTES = {"qwen_basic", "qwen_thinking", "function_gemma", "cad_generation
 _router = None
 
 
+def _build_encoder():
+    """Try encoders in order: FastEmbed → HuggingFace → raises."""
+    cache_dir = Path(__file__).resolve().parent.parent / "data" / "fastembed_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from semantic_router.encoders import FastEmbedEncoder
+        encoder = FastEmbedEncoder(cache_dir=str(cache_dir))
+        print("[SemanticRouter] Using FastEmbedEncoder")
+        return encoder
+    except (ImportError, Exception) as e:
+        print(f"[SemanticRouter] FastEmbed unavailable ({e}), trying HuggingFaceEncoder...")
+
+    try:
+        from semantic_router.encoders import HuggingFaceEncoder
+        encoder = HuggingFaceEncoder()
+        print("[SemanticRouter] Using HuggingFaceEncoder")
+        return encoder
+    except (ImportError, Exception) as e:
+        raise RuntimeError(
+            f"No encoder available. Install one: pip install 'semantic-router[fastembed]' "
+            f"or pip install 'semantic-router' sentence-transformers"
+        ) from e
+
+
 def _build_router():
     try:
         from semantic_router import Route
-        from semantic_router.encoders import FastEmbedEncoder
         from semantic_router.routers import SemanticRouter
     except ImportError as e:
         raise ImportError(
-            "semantic-router not installed. Run: pip install 'semantic-router[fastembed]'"
+            "semantic-router not installed. Run: pip install semantic-router"
         ) from e
 
-    # Cache embedding model locally
-    cache_dir = Path(__file__).resolve().parent.parent / "data" / "fastembed_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    encoder = FastEmbedEncoder(cache_dir=str(cache_dir))
+    encoder = _build_encoder()
 
     qwen_basic = Route(
         name="qwen_basic",
