@@ -379,7 +379,8 @@ class _VisionThread(QThread):
 
             img_b64 = base64.b64encode(self._jpg_bytes).decode("utf-8")
             base_url = OLLAMA_URL.rstrip("/")
-            prompt = "Décris ce que tu vois en détail. Sois concis et précis."
+            from core.vision import _DEFAULT_PROMPT
+            prompt = _DEFAULT_PROMPT
 
             configured = _vision_model()
             models = [configured] + [m for m in _VISION_MODEL_CASCADE if m != configured]

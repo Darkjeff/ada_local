@@ -13,6 +13,11 @@ from core.settings_store import settings
 
 # Ordered smallest → largest. moondream (1.6B) is tried first for speed.
 _VISION_MODEL_FALLBACK = "moondream"
+
+_DEFAULT_PROMPT = (
+    "Describe what you see in detail in French language. "
+    "Be concise and precise. Answer in French only."
+)
 _VISION_MODEL_CASCADE = ["moondream", "llava-phi3", "gemma4:latest"]
 
 def _vision_model() -> str:
@@ -93,7 +98,7 @@ def _try_model(base: str, model: str, prompt: str, img_b64: str) -> Optional[str
 
 
 def describe(
-    prompt: str = "Décris ce que tu vois en détail. Sois concis et précis.",
+    prompt: str = _DEFAULT_PROMPT,
     camera_index: int = 0,
     model: Optional[str] = None,
 ) -> dict:
