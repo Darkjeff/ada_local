@@ -358,14 +358,20 @@ class MainWindow(FluentWindow):
         if hasattr(self, "handlers"):
             if self.handlers._stop_event:
                 self.handlers._stop_event.set()
-            if self.handlers._thread and self.handlers._thread.isRunning():
-                self.handlers._thread.quit()
-                self.handlers._thread.wait(3000)
+            try:
+                if self.handlers._thread and self.handlers._thread.isRunning():
+                    self.handlers._thread.quit()
+                    self.handlers._thread.wait(3000)
+            except RuntimeError:
+                pass  # QThread C++ object already deleted via deleteLater
 
         # 2. Stop model preloader thread if still running
-        if hasattr(self, "preloader_thread") and self.preloader_thread.isRunning():
-            self.preloader_thread.quit()
-            self.preloader_thread.wait(5000)
+        try:
+            if hasattr(self, "preloader_thread") and self.preloader_thread.isRunning():
+                self.preloader_thread.quit()
+                self.preloader_thread.wait(5000)
+        except RuntimeError:
+            pass
 
         # 3. Stop voice assistant (recorder.shutdown has 8s timeout in stt.py)
         if VOICE_ASSISTANT_ENABLED:
