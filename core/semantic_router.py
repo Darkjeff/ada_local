@@ -119,9 +119,9 @@ _ROUTES: dict[str, list[str]] = {
 _TOKEN_INDEX: list[tuple[str, frozenset]] = []
 
 def _tokenize(text: str) -> frozenset:
-    """Lowercase, strip punctuation, split on whitespace."""
+    """Lowercase, split on whitespace and apostrophes, drop short words."""
     text = text.lower()
-    text = re.sub(r"[^\w\s']", " ", text)
+    text = re.sub(r"[^\w\s]", " ", text)  # apostrophes → space ("l'espace" → "l espace")
     return frozenset(w for w in text.split() if len(w) > 1)
 
 def _build_index():
