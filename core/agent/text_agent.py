@@ -55,10 +55,14 @@ class TextBrowserAgent(QObject):
 
     def start_task(self, instruction: str):
         from core.agent.browser_controller import BrowserController
+        from core.model_persistence import ensure_qwen_loaded, mark_qwen_used
         self._running = True
         self._controller = BrowserController(headless=True)
 
         try:
+            self.step_update.emit("Loading model...")
+            ensure_qwen_loaded()
+            mark_qwen_used()
             self._controller.start()
             self.step_update.emit(f"Starting: {instruction}")
             self._run_loop(instruction)
@@ -115,7 +119,7 @@ class TextBrowserAgent(QObject):
                     chat_url,
                     json={"model": model, "messages": messages,
                           "stream": False, "think": False},
-                    timeout=60,
+                    timeout=120,
                 )
                 resp.raise_for_status()
                 reply = resp.json().get("message", {}).get("content", "").strip()
