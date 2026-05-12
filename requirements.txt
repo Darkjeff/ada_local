@@ -5,7 +5,9 @@
 # Install all dependencies with:
 #   pip install -r requirements.txt
 #
-# IMPORTANT: This project requires Python 3.10 or higher
+# IMPORTANT: This project requires Python 3.10–3.12 (Python 3.13 is NOT supported)
+# IMPORTANT: build123d and PySide6-WebEngine require Python <3.13
+# Recommended: conda create -n ada python=3.12 && conda activate ada
 # IMPORTANT: For PyTorch with CUDA support, install from pytorch.org:
 #   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 # =====================================================
@@ -15,7 +17,7 @@
 # -----------------------------------------------------
 PySide6>=6.10.0                # Qt GUI framework for Python
 PySide6-Fluent-Widgets>=1.10.0 # Fluent Design UI components (PySide6 version)
-PySide6-WebEngine>=6.10.0      # WebEngine for in-app 3D STL viewer (CAD Agent)
+PySide6-WebEngine>=6.10.0      # WebEngine for in-app 3D STL viewer (CAD Agent) — requires Python <3.13
 darkdetect>=0.8.0              # Detect system dark/light mode
 markdown>=3.4.0                # Markdown rendering for chat messages
 pygments>=2.15.0               # Syntax highlighting for code blocks
@@ -42,7 +44,7 @@ PyAudio>=0.2.14                # Audio I/O for microphone access
 # -----------------------------------------------------
 # CAD Generation
 # -----------------------------------------------------
-build123d>=0.8.0               # Parametric CAD library (OCP-based, generates STL)
+build123d>=0.8.0               # Parametric CAD library (OCP-based, generates STL) — requires Python <3.13
 
 # -----------------------------------------------------
 # Browser Automation

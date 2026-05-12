@@ -19,7 +19,14 @@ from qfluentwidgets import (
 
 from core.agent.cad_agent import CadAgent, OUTPUT_DIR
 
-# Try to import QWebEngineView — optional dependency
+# Check build123d availability (requires Python <3.13)
+try:
+    import build123d  # noqa: F401
+    _HAS_BUILD123D = True
+except ImportError:
+    _HAS_BUILD123D = False
+
+# Try to import QWebEngineView — optional, requires Python <3.13 + PySide6-WebEngine
 try:
     from PySide6.QtWebEngineWidgets import QWebEngineView
     from PySide6.QtWebEngineCore import QWebEngineSettings
@@ -200,7 +207,19 @@ class CadTab(QWidget):
 
         root.addLayout(row)
 
-        self.status_label = CaptionLabel("Status: Idle", self)
+        if not _HAS_BUILD123D:
+            warn = CaptionLabel(
+                "⚠ build123d non disponible — nécessite Python <3.13. "
+                "Créez un environnement Python 3.12 : "
+                "conda create -n ada python=3.12 && pip install build123d",
+                self
+            )
+            warn.setStyleSheet("color: #f0883e; padding: 4px 0;")
+            root.addWidget(warn)
+            self.gen_btn.setEnabled(False)
+            self.stop_btn.setEnabled(False)
+
+        self.status_label = CaptionLabel("Status: Idle" if _HAS_BUILD123D else "Status: build123d manquant", self)
         root.addWidget(self.status_label)
 
         # Splitter: log left, viewer right
