@@ -197,6 +197,32 @@ class TextBrowserAgent(QObject):
         except Exception as e:
             return f"(error reading page: {e})"
 
+    def _dismiss_consent(self, page) -> bool:
+        """Dismiss Google/cookie consent dialogs. Returns True if one was found."""
+        selectors = [
+            # Google consent buttons (FR/EN)
+            "button:has-text('Tout accepter')",
+            "button:has-text('Accept all')",
+            "button:has-text('J\\'accepte')",
+            "button:has-text('Accepter')",
+            "form[action*='consent'] button[type='submit']",
+            "[aria-label*='Avant d\\'accéder'] button",
+            "[aria-label*='Before you continue'] button",
+        ]
+        for sel in selectors:
+            try:
+                btn = page.locator(sel).first
+                if btn.is_visible(timeout=1000):
+                    btn.click(timeout=3000)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        pass
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _execute(self, action: dict):
         name = action.get("action")
         page = self._controller.page
@@ -209,9 +235,12 @@ class TextBrowserAgent(QObject):
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
             except Exception:
-                pass  # timeout is OK — page is probably usable
+                pass
+            self._dismiss_consent(page)
 
         elif name == "click":
+            # Dismiss any consent overlay before clicking
+            self._dismiss_consent(page)
             link_text = action.get("link_text", "")
             try:
                 page.get_by_text(link_text, exact=True).first.click(timeout=5000)
@@ -224,12 +253,12 @@ class TextBrowserAgent(QObject):
 
         elif name == "search":
             query = action.get("query", "")
-            # Prefer Google search URL — most reliable
             page.goto(f"https://www.google.com/search?q={urllib.parse.quote(query)}", timeout=20000)
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
             except Exception:
                 pass
+            self._dismiss_consent(page)
 
         elif name == "fill":
             label_text = action.get("label", "")
