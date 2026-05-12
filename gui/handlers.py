@@ -64,6 +64,8 @@ class ChatWorker(QObject):
                 self._stream_qwen_response(True)
             elif route == "function_gemma":
                 self._handle_function_gemma()
+            elif route == "youtube":
+                self._handle_youtube()
             elif route == "vision":
                 self._stream_qwen_response(False)
             else:
@@ -75,6 +77,97 @@ class ChatWorker(QObject):
 
         finally:
             self.done.emit()
+
+    def _handle_youtube(self):
+        """Fetch YouTube transcript and stream a Qwen summary/analysis."""
+        from core.youtube_transcript import extract_video_id, fetch_transcript
+
+        self.status.emit("Fetching transcript...")
+
+        video_id = extract_video_id(self.user_text)
+        if not video_id:
+            self._stream_qwen_response(False)
+            return
+
+        result = fetch_transcript(video_id)
+
+        if not result["success"]:
+            error_msg = result["error"]
+            self.error.emit(f"YouTube transcript: {error_msg}")
+            return
+
+        transcript = result["text"]
+        lang = result["language"]
+
+        # Strip the URL from the user message to get the actual question
+        import re
+        question = re.sub(r"https?://\S+", "", self.user_text).strip()
+        if not question:
+            question = "Résume cette vidéo en français de façon concise."
+
+        context_prompt = (
+            f"[TRANSCRIPT YouTube — langue: {lang}]\n{transcript}\n\n"
+            f"Question de l'utilisateur : {question}\n\n"
+            "Réponds en français, de façon concise et structurée. "
+            "Base-toi uniquement sur le transcript ci-dessus."
+        )
+
+        # Inject as user message and stream Qwen response
+        max_hist = app_settings.get("general.max_history", MAX_HISTORY)
+        if len(self.messages) > max_hist:
+            self.messages = [self.messages[0]] + self.messages[-(max_hist - 1):]
+
+        self.messages.append({"role": "user", "content": context_prompt})
+
+        self.ui_update.emit()
+        self.status.emit("Generating response...")
+
+        model = app_settings.get("models.chat", RESPONDER_MODEL)
+        ensure_qwen_loaded()
+        mark_qwen_used()
+        ensure_exclusive_qwen(model)
+        ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
+
+        payload = {
+            "model": model,
+            "messages": self.messages,
+            "stream": True,
+            "think": False,
+            "keep_alive": "5m",
+        }
+
+        sentence_buffer = SentenceBuffer()
+        self.full_response = ""
+        self.think_start.emit(False)
+
+        with http_session.post(f"{ollama_url}/api/chat", json=payload, stream=True) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if self.stop_event.is_set():
+                    break
+                if line:
+                    try:
+                        chunk = json.loads(line.decode("utf-8"))
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            self.full_response += content
+                            self.response_chunk.emit(content)
+                            if self.is_tts_enabled and not DEBUG_SKIP_TTS:
+                                for s in sentence_buffer.add(content):
+                                    tts.queue_sentence(s)
+                    except Exception:
+                        continue
+
+        self.think_end.emit()
+
+        if self.is_tts_enabled and not DEBUG_SKIP_TTS and not self.stop_event.is_set():
+            rem = sentence_buffer.flush()
+            if rem:
+                tts.queue_sentence(rem)
+
+        self.messages.append({"role": "assistant", "content": self.full_response})
+        if self.current_session_id:
+            history_manager.add_message(self.current_session_id, "assistant", self.full_response)
 
     def _direct_shell_dispatch(self) -> bool:
         """

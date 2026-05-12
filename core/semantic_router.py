@@ -17,7 +17,7 @@ import re
 
 VALID_ROUTES = {
     "qwen_basic", "qwen_thinking", "function_gemma",
-    "cad_generation", "print_control", "vision",
+    "cad_generation", "print_control", "vision", "youtube",
 }
 
 # ── Utterances per route ───────────────────────────────────────────────────────
@@ -144,6 +144,11 @@ def get_route(prompt: str) -> str:
     """
     if not prompt or not prompt.strip():
         return "qwen_basic"
+
+    # YouTube URL detection — highest priority, unambiguous
+    import re as _re
+    if _re.search(r"(?:youtube\.com/watch|youtu\.be/)", prompt):
+        return "youtube"
 
     tokens = _tokenize(prompt)
     if not tokens:
