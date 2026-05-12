@@ -83,6 +83,8 @@ class ChatWorker(QObject):
         model = app_settings.get("models.chat", RESPONDER_MODEL)
 
         try:
+            ensure_qwen_loaded()
+            mark_qwen_used()
             resp = http_session.post(
                 f"{ollama_url}/api/chat",
                 json={
@@ -92,7 +94,7 @@ class ChatWorker(QObject):
                     "stream": False,
                     "think": False,
                 },
-                timeout=30,
+                timeout=90,
             )
             resp.raise_for_status()
             msg = resp.json().get("message", {})

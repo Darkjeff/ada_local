@@ -124,14 +124,16 @@ class MemoryStore:
         """
         if not self._db:
             return []
-        words = query.strip().split()
+
+        # Normalise: split on apostrophes/punctuation so "l'espace" → ["l", "espace"]
+        import re as _re
+        clean = _re.sub(r"[^\w\s]", " ", query.lower())
+        words = [w for w in clean.split() if len(w) > 2]
         if len(words) < _MIN_WORDS_TO_SEARCH:
             return []
 
-        # Build FTS5 query: strip punctuation from each word, require all terms
-        fts_terms = " ".join(
-            w.strip(".,!?;:\"'") for w in words if len(w) > 2
-        )
+        # Join as FTS5 query (plain terms, no operators)
+        fts_terms = " ".join(words)
         if not fts_terms:
             return []
 
