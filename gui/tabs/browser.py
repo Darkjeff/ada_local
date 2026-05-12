@@ -1,177 +1,155 @@
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QTextEdit, QFrame, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QTextEdit, QSizePolicy, QSplitter
 )
 from PySide6.QtCore import Qt, QThread, Slot, Signal
 from PySide6.QtGui import QPixmap, QImage
 
 from qfluentwidgets import (
-    PrimaryPushButton, LineEdit, StrongBodyLabel, CaptionLabel,
-    ScrollArea, CardWidget
+    PrimaryPushButton, PushButton, LineEdit, StrongBodyLabel,
+    CaptionLabel, CardWidget, TextEdit
 )
 
-from gui.components.thinking_expander import ThinkingExpander
-from core.agent import BrowserAgent
+from core.agent import TextBrowserAgent
+
 
 class BrowserTab(QWidget):
-    """
-    Tab for controlling the AI Browser Agent.
-    """
+    """Web Agent tab — text-based browsing with qwen3:1.7b + Playwright."""
+
+    run_signal = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("BrowserTab")
-        
-        # Agent Threading
-        self.agent_thread = QThread()
-        self.agent = None # Will instantiate when needed
-        
+        self.setObjectName("browserInterface")
+        self._agent_thread = None
+        self._agent = None
         self._setup_ui()
-        self._setup_agent()
+
+    # ── UI ────────────────────────────────────────────────────────────────────
 
     def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
 
-        # Left Column: Browser Viewport
-        viewport_container = CardWidget(self)
-        viewport_layout = QVBoxLayout(viewport_container)
-        
-        viewport_label = StrongBodyLabel("Live Browser View", self)
-        viewport_layout.addWidget(viewport_label)
-        
-        self.image_label = QLabel("Browser not started")
-        self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setStyleSheet("background-color: #202020; border-radius: 8px;")
-        self.image_label.setMinimumSize(640, 360)
-        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # self.image_label.setScaledContents(True) # Can cause distortion, better to scale pixmap
-        viewport_layout.addWidget(self.image_label)
-        
-        layout.addWidget(viewport_container, stretch=3)
+        # Title
+        title = StrongBodyLabel("Web Agent", self)
+        root.addWidget(title)
 
-        # Right Column: Controls & Logs
-        controls_container = QWidget()
-        controls_layout = QVBoxLayout(controls_container)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(10)
+        # Input row
+        input_row = QHBoxLayout()
+        self.task_input = LineEdit(self)
+        self.task_input.setPlaceholderText(
+            "e.g. Search for the latest Python release on python.org"
+        )
+        self.task_input.returnPressed.connect(self._on_start)
+        input_row.addWidget(self.task_input)
+
+        self.start_btn = PrimaryPushButton("Start", self)
+        self.start_btn.clicked.connect(self._on_start)
+        input_row.addWidget(self.start_btn)
+
+        self.stop_btn = PushButton("Stop", self)
+        self.stop_btn.clicked.connect(self._on_stop)
+        self.stop_btn.setEnabled(False)
+        input_row.addWidget(self.stop_btn)
+
+        root.addLayout(input_row)
 
         # Status
         self.status_label = CaptionLabel("Status: Idle", self)
-        controls_layout.addWidget(self.status_label)
+        root.addWidget(self.status_label)
 
-        # Thinking Stream
-        self.thinking_expander = ThinkingExpander(self)
-        controls_layout.addWidget(self.thinking_expander)
+        # Splitter: log left, result right
+        splitter = QSplitter(Qt.Horizontal, self)
 
-        # Action Log
-        log_label = StrongBodyLabel("Action Log", self)
-        controls_layout.addWidget(log_label)
-        
-        self.action_log = QTextEdit()
+        # Action log
+        log_card = CardWidget(self)
+        log_layout = QVBoxLayout(log_card)
+        log_layout.addWidget(StrongBodyLabel("Action Log", self))
+        self.action_log = QTextEdit(self)
         self.action_log.setReadOnly(True)
         self.action_log.setStyleSheet("font-family: Consolas; font-size: 11px;")
-        controls_layout.addWidget(self.action_log)
+        log_layout.addWidget(self.action_log)
+        splitter.addWidget(log_card)
 
-        # Input Area
-        input_layout = QHBoxLayout()
-        self.url_input = LineEdit()
-        self.url_input.setPlaceholderText("Enter instruction (e.g. 'Go to google.com and search...')")
-        input_layout.addWidget(self.url_input)
-        
-        self.go_btn = PrimaryPushButton("Execute")
-        self.go_btn.clicked.connect(self._on_execute)
-        input_layout.addWidget(self.go_btn)
-        
-        controls_layout.addLayout(input_layout)
-        
-        layout.addWidget(controls_container, stretch=2)
+        # Result
+        result_card = CardWidget(self)
+        result_layout = QVBoxLayout(result_card)
+        result_layout.addWidget(StrongBodyLabel("Result", self))
+        self.result_view = TextEdit(self)
+        self.result_view.setReadOnly(True)
+        self.result_view.setPlaceholderText("The agent's final answer will appear here…")
+        result_layout.addWidget(self.result_view)
+        splitter.addWidget(result_card)
 
-    def _setup_agent(self):
-        # Instantiate agent - model comes from settings now
-        from core.settings_store import settings
-        model_name = settings.get("models.web_agent", "qwen3-vl:4b")
-        self.agent = BrowserAgent(model_name=model_name) 
-        self.agent.moveToThread(self.agent_thread)
-        
-        # Connect signals
-        self.agent.screenshot_updated.connect(self._update_screenshot)
-        self.agent.thinking_update.connect(self._update_thinking)
-        self.agent.action_updated.connect(self._log_action)
-        self.agent.finished.connect(self._on_finished)
-        self.agent.error_occurred.connect(self._on_error)
-        
-        # Connect start signal
-        self.run_signal.connect(self.agent.start_task)
-        
-        # Start thread
-        self.agent_thread.start()
+        splitter.setSizes([450, 350])
+        root.addWidget(splitter, stretch=1)
 
-    def _on_execute(self):
-        instruction = self.url_input.text()
-        if not instruction.strip():
+    # ── Agent lifecycle ───────────────────────────────────────────────────────
+
+    def _on_start(self):
+        instruction = self.task_input.text().strip()
+        if not instruction:
             return
-            
-        self.status_label.setText("Status: Running...")
-        self.go_btn.setEnabled(False)
+
         self.action_log.clear()
-        
-        # Reset thinking expander text if possible or re-create? 
-        # ThinkingExpander appends. Let's just allow appending for now or clear manually if exposed.
-        # Ideally ThinkingExpander should have a clear method.
-        # For now, we just leave it.
-        
-        # Invoke agent method via slot/signal pattern or direct call if thread-safe
-        # Since start_task is a loop, we should invoke it via QMetaObject or signal to be safe in thread
-        # But for simplicity in Python PySide, direct call works if it doesn't block GUI. 
-        # BrowserAgent.start_task blocks! It has a while loop.
-        # We need to trigger it as a distinct slot.
-        # Let's create a signal here to trigger it.
-        # Or better, refactor Agent to have a 'start' signal.
-        # Hack for now: use QTimer.singleShot from the thread context?
-        # Standard way: emit signal -> connect to slot.
+        self.result_view.clear()
+        self.status_label.setText("Status: Running…")
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+
+        # Create fresh agent + thread each run
+        self._agent_thread = QThread(self)
+        self._agent = TextBrowserAgent()
+        self._agent.moveToThread(self._agent_thread)
+
+        self._agent.step_update.connect(self._log)
+        self._agent.result_ready.connect(self._on_result)
+        self._agent.finished.connect(self._on_finished)
+        self._agent.error_occurred.connect(self._on_error)
+
+        self.run_signal.connect(self._agent.start_task)
+        self._agent_thread.start()
         self.run_signal.emit(instruction)
 
-    # Signal to bridge GUI -> Worker
-    run_signal = Signal(str)
+    def _on_stop(self):
+        if self._agent:
+            self._agent.stop()
+        self.status_label.setText("Status: Stopping…")
+        self.stop_btn.setEnabled(False)
 
-    def closeEvent(self, event):
-        if self.agent:
-            self.agent.stop()
-            self.agent.cleanup()
-        self.agent_thread.quit()
-        self.agent_thread.wait()
-        super().closeEvent(event)
-
-    # Slots
-    @Slot(QImage)
-    def _update_screenshot(self, image):
-        # Scale to fit label
-        pixmap = QPixmap.fromImage(image)
-        scaled = pixmap.scaled(
-            self.image_label.size(), 
-            Qt.KeepAspectRatio, 
-            Qt.SmoothTransformation
-        )
-        self.image_label.setPixmap(scaled)
+    # ── Slots ─────────────────────────────────────────────────────────────────
 
     @Slot(str)
-    def _update_thinking(self, text):
-        self.thinking_expander.add_text(text)
-
-    @Slot(str)
-    def _log_action(self, text):
+    def _log(self, text: str):
         self.action_log.append(text)
+
+    @Slot(str)
+    def _on_result(self, text: str):
+        self.result_view.setPlainText(text)
 
     @Slot()
     def _on_finished(self):
-        self.status_label.setText("Status: Finished")
-        self.go_btn.setEnabled(True)
-        self.thinking_expander.complete()
+        self.status_label.setText("Status: Done")
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        if self._agent_thread:
+            self._agent_thread.quit()
+            self._agent_thread.wait(3000)
 
     @Slot(str)
-    def _on_error(self, err):
-        self.status_label.setText(f"Status: Error - {err}")
+    def _on_error(self, err: str):
+        self.status_label.setText(f"Status: Error")
         self.action_log.append(f"ERROR: {err}")
-        self.go_btn.setEnabled(True)
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        if self._agent_thread:
+            self._agent_thread.quit()
 
+    def closeEvent(self, event):
+        self._on_stop()
+        if self._agent_thread and self._agent_thread.isRunning():
+            self._agent_thread.quit()
+            self._agent_thread.wait(3000)
+        super().closeEvent(event)
