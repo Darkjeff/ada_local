@@ -971,6 +971,14 @@ class HATab(QWidget):
                 groups.setdefault("Other", []).append(e)
         return groups
 
+    def closeEvent(self, event):
+        try:
+            if hasattr(self, "_refresh_timer"):
+                self._refresh_timer.stop()
+        except RuntimeError:
+            pass
+        super().closeEvent(event)
+
     def _filter_ha_grid(self, room_name: str):
         self._active_room = room_name
         try:
@@ -979,11 +987,22 @@ class HATab(QWidget):
         except RuntimeError:
             return
 
-        for i in reversed(range(self.ha_grid_layout.count())):
-            item = self.ha_grid_layout.itemAt(i)
+        try:
+            count = self.ha_grid_layout.count()
+        except RuntimeError:
+            return
+
+        for i in reversed(range(count)):
+            try:
+                item = self.ha_grid_layout.itemAt(i)
+            except RuntimeError:
+                return
             if item is None:
                 continue
-            w = item.widget()
+            try:
+                w = item.widget()
+            except RuntimeError:
+                return
             if w is not None:
                 try:
                     w.setParent(None)
@@ -994,8 +1013,11 @@ class HATab(QWidget):
                  else self.ha_room_groups.get(room_name, []))
         row = col = 0
         for e in items:
-            card = HAEntityCard(e["entity_id"], e)
-            self.ha_grid_layout.addWidget(card, row, col)
+            try:
+                card = HAEntityCard(e["entity_id"], e)
+                self.ha_grid_layout.addWidget(card, row, col)
+            except RuntimeError:
+                return
             col += 1
             if col >= 3:
                 col = 0

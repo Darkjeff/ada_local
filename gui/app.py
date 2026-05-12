@@ -380,7 +380,15 @@ class MainWindow(FluentWindow):
         # The home automation silent-refresh timer fires every 30s and calls
         # _filter_ha_grid which dereferences Qt C++ objects — if those are
         # already deleted, Python segfaults at the C++ level.
-        for lazy_attr in ("home_lazy", "cad_lazy", "browser_lazy", "printers_lazy"):
+        # home_lazy: call _cleanup() which stops ha_tab._refresh_timer (nested widget)
+        home_lazy = getattr(self, "home_lazy", None)
+        if home_lazy and home_lazy.actual_widget:
+            try:
+                home_lazy.actual_widget._cleanup()
+            except Exception:
+                pass
+
+        for lazy_attr in ("cad_lazy", "browser_lazy", "printers_lazy"):
             lazy = getattr(self, lazy_attr, None)
             if lazy and lazy.actual_widget:
                 w = lazy.actual_widget
