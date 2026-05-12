@@ -353,11 +353,12 @@ class MainWindow(FluentWindow):
         """Handle application close event."""
         print("[App] Closing application, unloading models...")
         self.set_status("Closing...")
-        
-        # Stop voice assistant
+
+        # Stop voice assistant and wait for STT thread to fully terminate
+        # before Qt can destroy any QThread objects.
         if VOICE_ASSISTANT_ENABLED:
             voice_assistant.stop()
-        
+
         unload_all_models(sync=True)
         event.accept()
 
