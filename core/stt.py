@@ -39,7 +39,18 @@ class STTListener:
             import torch
             
             print(f"{CYAN}[STT] Loading RealTimeSTT...{RESET}")
-            
+
+            # Pre-trust silero-vad so RealTimeSTT's VAD engine doesn't fail
+            # with "Untrusted repository" on newer PyTorch versions.
+            try:
+                torch.hub.load(
+                    "snakers4/silero-vad", "silero_vad",
+                    trust_repo=True, verbose=False
+                )
+                print(f"{CYAN}[STT] silero-vad pre-loaded (trusted){RESET}")
+            except Exception as _e:
+                print(f"{GRAY}[STT] silero-vad pre-load skipped: {_e}{RESET}")
+
             # Check CUDA availability
             cuda_available = torch.cuda.is_available()
             if cuda_available:
