@@ -15,6 +15,7 @@
 # -----------------------------------------------------
 PySide6>=6.10.0                # Qt GUI framework for Python
 PySide6-Fluent-Widgets>=1.10.0 # Fluent Design UI components (PySide6 version)
+PySide6-WebEngine>=6.10.0      # WebEngine for in-app 3D STL viewer (CAD Agent)
 darkdetect>=0.8.0              # Detect system dark/light mode
 markdown>=3.4.0                # Markdown rendering for chat messages
 pygments>=2.15.0               # Syntax highlighting for code blocks
@@ -37,6 +38,11 @@ soundfile>=0.13.0              # Audio file I/O
 numpy>=2.0.0                   # Numerical computing (audio processing)
 realtimestt>=0.3.0             # Real-time speech-to-text with wake word detection
 PyAudio>=0.2.14                # Audio I/O for microphone access
+
+# -----------------------------------------------------
+# CAD Generation
+# -----------------------------------------------------
+build123d>=0.8.0               # Parametric CAD library (OCP-based, generates STL)
 
 # -----------------------------------------------------
 # Browser Automation

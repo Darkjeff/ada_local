@@ -40,6 +40,7 @@ class ChatWorker(QObject):
     reload_calendar = Signal()  # trigger calendar refresh
     search_start = Signal(str)  # query
     search_end = Signal()
+    navigate_to_cad = Signal(str)  # prompt to send to CAD tab
     
     def __init__(self, user_text: str, messages: list, is_tts_enabled: bool, 
                  current_session_id: str, stop_event):
@@ -68,8 +69,9 @@ class ChatWorker(QObject):
                 self._handle_youtube()
             elif route == "vision":
                 self._stream_qwen_response(False)
+            elif route == "cad_generation":
+                self._handle_cad_generation()
             else:
-                # cad_generation, print_control, unknown → direct Qwen
                 self._stream_qwen_response(False)
 
         except Exception as e:
@@ -77,6 +79,22 @@ class ChatWorker(QObject):
 
         finally:
             self.done.emit()
+
+    def _handle_cad_generation(self):
+        """Route CAD requests to the CAD tab and confirm in chat."""
+        # Extract the model description (strip known trigger words)
+        import re
+        desc = re.sub(
+            r"(?i)(crée?|génère?|dessine?|modélise?|make|create|generate|design|build)\s+(un|une|a|an)?\s*"
+            r"(modèle?|model|3d|stl|cad|pièce?|piece|objet?|object)?\s*",
+            "", self.user_text
+        ).strip() or self.user_text
+
+        self.navigate_to_cad.emit(desc)
+        self.simple_response.emit(
+            f"Je génère le modèle 3D : **{desc}**\n"
+            "Allez dans l'onglet **CAD Agent** pour voir la progression et le résultat."
+        )
 
     def _handle_youtube(self):
         """Fetch YouTube transcript and stream a Qwen summary/analysis."""
@@ -708,6 +726,16 @@ class ChatHandlers(QObject):
         if self.streaming_state['search_indicator']:
             self.streaming_state['search_indicator'].complete()
             
+    def _on_navigate_to_cad(self, prompt: str):
+        """Switch to CAD tab and start generation with the given prompt."""
+        win = self.main_window
+        # Ensure the CAD lazy tab is initialized
+        if hasattr(win, "cad_lazy"):
+            cad_tab = win.cad_lazy.initialize()
+            win.switchTo(win.cad_lazy)
+            if hasattr(cad_tab, "start_generation"):
+                cad_tab.start_generation(prompt)
+
     def _on_error(self, text):
         self.main_window.add_message_bubble("system", f"Error: {text}", is_thinking=True)
             
@@ -807,6 +835,7 @@ class ChatHandlers(QObject):
         self._worker.reload_calendar.connect(self._on_reload_calendar)
         self._worker.search_start.connect(self._on_search_start)
         self._worker.search_end.connect(self._on_search_end)
+        self._worker.navigate_to_cad.connect(self._on_navigate_to_cad)
         self._worker.done.connect(self._on_done)
         self._worker.done.connect(self._thread.quit)
         self._worker.done.connect(self._worker.deleteLater)
