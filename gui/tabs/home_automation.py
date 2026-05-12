@@ -792,19 +792,28 @@ class HATab(QWidget):
         try:
             if hasattr(self, "_silent_thread") and self._silent_thread and self._silent_thread.isRunning():
                 return
+            t = HADataFetchThread()
+            t.entities_found.connect(self._on_silent_refresh)
+            t.start()
+            self._silent_thread = t
         except RuntimeError:
-            self._silent_thread = None
-        t = HADataFetchThread()
-        t.entities_found.connect(self._on_silent_refresh)
-        t.start()
-        self._silent_thread = t
+            # Widget already destroyed — stop firing
+            if hasattr(self, "_refresh_timer"):
+                try:
+                    self._refresh_timer.stop()
+                except RuntimeError:
+                    pass
 
     def _on_silent_refresh(self, entities: dict):
-        if not entities or not hasattr(self, "ha_entities"):
-            return
-        self.ha_entities = list(entities.values())
-        self.ha_room_groups = self._categorize(self.ha_entities)
-        self._filter_ha_grid(self._active_room)
+        try:
+            if not entities or not hasattr(self, "ha_entities"):
+                return
+            self.ha_entities = list(entities.values())
+            self.ha_room_groups = self._categorize(self.ha_entities)
+            self._filter_ha_grid(self._active_room)
+        except RuntimeError:
+            # Qt C++ object deleted during shutdown — ignore
+            pass
 
     def refresh(self):
         if hasattr(self, "_refresh_timer"):
@@ -964,11 +973,22 @@ class HATab(QWidget):
 
     def _filter_ha_grid(self, room_name: str):
         self._active_room = room_name
-        for btn_room, btn in self._filter_buttons.items():
-            btn.setChecked(btn_room == room_name)
+        try:
+            for btn_room, btn in self._filter_buttons.items():
+                btn.setChecked(btn_room == room_name)
+        except RuntimeError:
+            return
 
         for i in reversed(range(self.ha_grid_layout.count())):
-            self.ha_grid_layout.itemAt(i).widget().setParent(None)
+            item = self.ha_grid_layout.itemAt(i)
+            if item is None:
+                continue
+            w = item.widget()
+            if w is not None:
+                try:
+                    w.setParent(None)
+                except RuntimeError:
+                    pass
 
         items = (self.ha_entities if room_name == "All"
                  else self.ha_room_groups.get(room_name, []))

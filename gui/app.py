@@ -376,19 +376,44 @@ class MainWindow(FluentWindow):
         except RuntimeError:
             pass
 
-        # 3. Stop voice assistant (recorder.shutdown has 8s timeout in stt.py)
+        # 3. Stop all background timers BEFORE Qt starts destroying widgets.
+        # The home automation silent-refresh timer fires every 30s and calls
+        # _filter_ha_grid which dereferences Qt C++ objects — if those are
+        # already deleted, Python segfaults at the C++ level.
+        for lazy_attr in ("home_lazy", "cad_lazy", "browser_lazy", "printers_lazy"):
+            lazy = getattr(self, lazy_attr, None)
+            if lazy and lazy.actual_widget:
+                w = lazy.actual_widget
+                for timer_name in ("_refresh_timer", "_timer", "_poll_timer"):
+                    t = getattr(w, timer_name, None)
+                    if t is not None:
+                        try:
+                            t.stop()
+                        except RuntimeError:
+                            pass
+
+        # 4. Stop voice assistant (recorder.shutdown has 8s timeout in stt.py)
         if VOICE_ASSISTANT_ENABLED:
             voice_assistant.stop()
 
-        # 4. Kill any loky/joblib process pool before Python atexit runs.
-        # This prevents the 25-semaphore leak that causes a segfault at shutdown.
+        # 5. Kill any loky/joblib process pool before Python atexit runs.
         try:
             from loky import get_reusable_executor
             get_reusable_executor().shutdown(wait=False, kill_workers=True)
         except Exception:
             pass
 
-        # 5. Fire-and-forget model unload — Ollama reclaims VRAM on its own
+        # 6. Release PyTorch CUDA resources — prevents /mp-* semaphore leak
+        # caused by torch.multiprocessing workers created by RealTimeSTT.
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+        # 7. Fire-and-forget model unload — Ollama reclaims VRAM on its own
         unload_all_models(sync=False)
         event.accept()
 
