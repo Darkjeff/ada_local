@@ -7,11 +7,28 @@ import os
 # Must be set BEFORE any tokenizers/HuggingFace/loky import to prevent
 # semaphore leaks and segfault at shutdown caused by loky process pool.
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["LOKY_MAX_CPU_COUNT"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 import warnings
 import sys
+import traceback
+
+# Debug: intercept loky executor creation to find the culprit.
+# Prints a stack trace every time a loky process pool is spawned.
+try:
+    from joblib.externals.loky import process_executor as _loky_pe
+    _orig_call = _loky_pe._ReusablePoolExecutor.__init__
+
+    def _traced_init(self, *args, **kwargs):
+        print("\n[LOKY DEBUG] Process pool created from:")
+        traceback.print_stack()
+        _orig_call(self, *args, **kwargs)
+
+    _loky_pe._ReusablePoolExecutor.__init__ = _traced_init
+except Exception as _e:
+    print(f"[LOKY DEBUG] Could not patch: {_e}")
 
 # Suppress ALL warnings globally before any other imports
 warnings.simplefilter("ignore")

@@ -78,8 +78,17 @@ _ROUTES: dict[str, list[str]] = {
         "quel temps fait-il", "weather in", "météo à",
         "qu'est-ce que j'ai aujourd'hui", "what tasks do I have",
         "what's on my schedule", "rappelle-moi",
-        "exécute", "lance", "shell", "commande powershell",
+        # shell_exec
+        "exécute", "lance le script", "shell", "commande powershell",
         "liste les fichiers", "quelle version", "ping",
+        "espace disque", "espace disponible", "disk space", "df",
+        "utilisation cpu", "utilisation mémoire", "ram disponible",
+        "processus en cours", "liste les processus", "process list",
+        "quel est l'espace", "combien d'espace", "how much disk",
+        "température cpu", "cpu temperature", "charge système",
+        "ports ouverts", "connexions réseau", "netstat", "ipconfig", "ifconfig",
+        "version de python", "version python", "version nodejs",
+        "services windows", "services linux", "systemctl",
     ],
 
     "qwen_thinking": [
