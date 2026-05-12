@@ -91,35 +91,25 @@ def execute_function(name, params):
 
 
 def preload_models():
-    """Client-side preload to ensure models are in memory before user interaction. Parallelized."""
-    from core.router import FunctionGemmaRouter
+    """Preload Ollama responder model and TTS into memory at startup."""
+    # NOTE: The ML FunctionGemmaRouter is intentionally NOT loaded here.
+    # The chat pipeline now uses core.semantic_router (keyword-based, no ML).
+    # Loading transformers/tokenizers creates a loky process pool that leaks
+    # 25 POSIX semaphores at shutdown and causes a segfault (core dump).
     from core.tts import tts
-    
-    global router
-    
-    print(f"{GRAY}[System] Preloading models...{RESET}")
-    
-    threads = []
 
-    def load_router():
-        global router
-        try:
-            router = FunctionGemmaRouter(model_path=LOCAL_ROUTER_PATH, compile_model=False)
-        except Exception as e:
-            print(f"{GRAY}[Router] Failed to load local model: {e}{RESET}")
+    print(f"{GRAY}[System] Preloading models...{RESET}")
 
     def load_responder():
         try:
-            # Send a minimal prompt to force the model to fully load into VRAM
-            # The keep_alive ensures it stays loaded for 30 minutes
             print(f"{GRAY}[System] Loading responder model ({RESPONDER_MODEL})...{RESET}")
             response = http_session.post(f"{OLLAMA_URL}/generate", json={
-                "model": RESPONDER_MODEL, 
+                "model": RESPONDER_MODEL,
                 "prompt": "hi",
                 "stream": False,
                 "keep_alive": "30m",
-                "options": {"num_predict": 1}  # Generate just 1 token to minimize wait
-            }, timeout=120)  # 2 minute timeout for initial model load
+                "options": {"num_predict": 1}
+            }, timeout=120)
             if response.status_code == 200:
                 print(f"{GRAY}[System] Responder model loaded successfully.{RESET}")
             else:
@@ -131,16 +121,12 @@ def preload_models():
         print(f"{GRAY}[System] Loading voice model...{RESET}")
         tts.initialize()
 
-    # Create threads
-    threads.append(threading.Thread(target=load_router))
-    threads.append(threading.Thread(target=load_responder))
-    threads.append(threading.Thread(target=load_voice))
-
-    # Start all
+    threads = [
+        threading.Thread(target=load_responder),
+        threading.Thread(target=load_voice),
+    ]
     for t in threads:
         t.start()
-    
-    # Wait for all
     for t in threads:
         t.join()
 
