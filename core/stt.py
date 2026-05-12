@@ -160,16 +160,23 @@ class STTListener:
     def stop(self):
         """Stop listening and wait for the thread to fully terminate."""
         self.running = False
-        if self.recorder:
-            try:
-                print(f"{CYAN}[STT] Shutting down recorder...{RESET}")
-                self.recorder.shutdown()
-            except Exception as e:
-                print(f"{GRAY}[STT] Error stopping recorder: {e}{RESET}")
-            finally:
-                self.recorder = None  # release ctranslate2 model + thread pool
+        recorder = self.recorder
+        self.recorder = None  # detach early so _run_listener exits
+        if recorder:
+            # recorder.shutdown() can block indefinitely on audio hardware;
+            # run it in a daemon thread and abandon it after 8 seconds.
+            def _shutdown():
+                try:
+                    recorder.shutdown()
+                except Exception:
+                    pass
+            t = threading.Thread(target=_shutdown, daemon=True)
+            t.start()
+            t.join(timeout=8.0)
+            if t.is_alive():
+                print(f"{GRAY}[STT] recorder.shutdown() did not return in 8s — abandoning{RESET}")
         if self.listening_thread and self.listening_thread.is_alive():
-            self.listening_thread.join(timeout=10.0)
+            self.listening_thread.join(timeout=5.0)
             if self.listening_thread.is_alive():
-                print(f"{GRAY}[STT] Thread still alive after 10s — forcing exit{RESET}")
+                print(f"{GRAY}[STT] Thread still alive after 5s — forcing exit{RESET}")
         print(f"{CYAN}[STT] Listener stopped{RESET}")
