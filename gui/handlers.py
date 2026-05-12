@@ -2,8 +2,8 @@ from PySide6.QtCore import QObject, Signal, QThread, QTimer
 import json
 import re
 
-from config import RESPONDER_MODEL, OLLAMA_URL, MAX_HISTORY
-from core.llm import route_query, should_bypass_router, http_session
+from config import RESPONDER_MODEL, OLLAMA_URL, MAX_HISTORY, FUNCTIONS
+from core.llm import http_session
 from core.tts import tts, SentenceBuffer
 from core.history import history_manager
 from core.model_manager import ensure_exclusive_qwen
@@ -14,7 +14,7 @@ from core.skill_manager import skill_manager
 from core.memory_store import memory_store
 
 # Functions that are actions (not passthrough)
-ACTION_FUNCTIONS = {"control_light", "set_timer", "set_alarm", "create_calendar_event", "add_task", "web_search"}
+ACTION_FUNCTIONS = {"control_light", "set_timer", "set_alarm", "create_calendar_event", "add_task", "web_search", "shell_exec"}
 
 
 # DEBUG: Set to True to test streaming without TTS blocking
@@ -54,69 +54,90 @@ class ChatWorker(QObject):
     def process(self):
         """Background processing method."""
         try:
-            if should_bypass_router(self.user_text):
-                func_name = "nonthinking"
-                params = {"prompt": self.user_text}
+            from core.semantic_router import get_route
+            self.status.emit("Routing...")
+            route = get_route(self.user_text)
+
+            if route == "qwen_basic":
+                self._stream_qwen_response(False)
+            elif route == "qwen_thinking":
+                self._stream_qwen_response(True)
+            elif route == "function_gemma":
+                self._handle_function_gemma()
+            elif route == "vision":
+                self._stream_qwen_response(False)
             else:
-                self.status.emit("Routing...")
-                func_name, params = route_query(self.user_text)
-            
-            # Handle action functions
-            if func_name in ACTION_FUNCTIONS:
-                self.status.emit(f"Executing {func_name}...")
-                
-                # Emit search start for web_search
-                if func_name == "web_search":
-                    query = params.get("query", "")
-                    self.search_start.emit(query)
-                
-                result = function_executor.execute(func_name, params)
-                
-                # Emit search end for web_search
-                if func_name == "web_search":
-                    self.search_end.emit()
-                
-                # Emit toast notification
-                self.toast.emit(result["message"], result["success"])
-                
-                # Emit GUI update signals for specific actions
-                if func_name == "set_timer" and result["success"]:
-                    seconds = result.get("data", {}).get("seconds", 0)
-                    label = result.get("data", {}).get("label", "Timer")
-                    self.set_timer_signal.emit(seconds, label)
-                elif func_name == "set_alarm" and result["success"]:
-                    self.reload_alarms.emit()
-                elif func_name == "create_calendar_event" and result["success"]:
-                    self.reload_calendar.emit()
-                
-                # Enable thinking for web_search
-                enable_thinking = (func_name == "web_search")
-                
-                # Generate Qwen response with context
-                self._generate_response_with_context(func_name, result, enable_thinking)
-                
-            # Handle get_system_info (context query)
-            elif func_name == "get_system_info":
-                self.status.emit("Gathering system info...")
-                result = function_executor.execute(func_name, params)
-                
-                # Generate Qwen response with full system context
-                self._generate_response_with_context(func_name, result, enable_thinking=True)
-            
-            # Handle thinking/nonthinking (direct passthrough)
-            elif func_name in ("thinking", "nonthinking"):
-                enable_thinking = (func_name == "thinking")
-                self._stream_qwen_response(enable_thinking)
-            
-            # Unknown function - treat as nonthinking
-            else:
+                # cad_generation, print_control, unknown → direct Qwen
                 self._stream_qwen_response(False)
 
         except Exception as e:
             self.error.emit(str(e))
-        
+
         finally:
             self.done.emit()
+
+    def _handle_function_gemma(self):
+        """Use Ollama tool-calling to identify and execute the right function."""
+        self.status.emit("Dispatching...")
+        ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
+        model = app_settings.get("models.chat", RESPONDER_MODEL)
+
+        try:
+            resp = http_session.post(
+                f"{ollama_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": self.user_text}],
+                    "tools": FUNCTIONS,
+                    "stream": False,
+                    "think": False,
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            msg = resp.json().get("message", {})
+            tool_calls = msg.get("tool_calls", [])
+        except Exception as e:
+            print(f"[FunctionGemma] Tool-call failed: {e}")
+            self._stream_qwen_response(False)
+            return
+
+        if not tool_calls:
+            self._stream_qwen_response(False)
+            return
+
+        call = tool_calls[0]
+        func_name = call["function"]["name"]
+        params = call["function"].get("arguments", {})
+
+        if func_name == "passthrough":
+            self._stream_qwen_response(bool(params.get("thinking", False)))
+            return
+
+        self.status.emit(f"Executing {func_name}...")
+
+        if func_name == "web_search":
+            self.search_start.emit(params.get("query", ""))
+
+        result = function_executor.execute(func_name, params)
+
+        if func_name == "web_search":
+            self.search_end.emit()
+
+        if func_name in ACTION_FUNCTIONS:
+            self.toast.emit(result["message"], result["success"])
+
+        if func_name == "set_timer" and result["success"]:
+            seconds = result.get("data", {}).get("seconds", 0)
+            label = result.get("data", {}).get("label", "Timer")
+            self.set_timer_signal.emit(seconds, label)
+        elif func_name == "set_alarm" and result["success"]:
+            self.reload_alarms.emit()
+        elif func_name == "create_calendar_event" and result["success"]:
+            self.reload_calendar.emit()
+
+        enable_thinking = (func_name == "web_search")
+        self._generate_response_with_context(func_name, result, enable_thinking)
     
     def _generate_response_with_context(self, func_name: str, result: dict, enable_thinking: bool = False):
         """Generate a Qwen response with function result as context."""
@@ -169,6 +190,16 @@ class ChatWorker(QObject):
                     context_msg += "Use the above search results to answer the user's question. Include relevant URLs in your response using markdown link format [text](url)."
                 else:
                     context_msg = f"ACTION RESULT: {func_name} {status}. {result.get('message', '')}"
+            elif func_name == "shell_exec":
+                cmd = result.get("data", {}).get("command", "")
+                output = result.get("message", "")
+                if result.get("success"):
+                    context_msg = (
+                        f"SHELL COMMAND OUTPUT (command: `{cmd}`):\n{output}\n\n"
+                        "Summarise this output naturally and concisely in the user's language."
+                    )
+                else:
+                    context_msg = f"SHELL COMMAND FAILED (command: `{cmd}`): {output}"
             else:
                 context_msg = f"ACTION RESULT: {func_name} {status}. {result.get('message', '')}"
         

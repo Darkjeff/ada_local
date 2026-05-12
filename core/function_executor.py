@@ -735,7 +735,8 @@ class FunctionExecutor:
 
 
     def _shell_exec(self, params: Dict) -> Dict:
-        """Execute a PowerShell command with safety checks."""
+        """Execute a shell command with safety checks (cross-platform)."""
+        import sys as _sys
         command = params.get("command", "").strip()
         if not command:
             return {"success": False, "message": "No command provided.", "data": None}
@@ -751,13 +752,17 @@ class FunctionExecutor:
 
         timeout = min(int(params.get("timeout", 30)), 120)
 
+        if _sys.platform == "win32":
+            cmd_args = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+        else:
+            cmd_args = ["bash", "-c", command]
+
         try:
             result = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+                cmd_args,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                encoding="utf-8",
                 errors="replace",
             )
             stdout = result.stdout.strip()
