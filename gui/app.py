@@ -354,12 +354,25 @@ class MainWindow(FluentWindow):
         print("[App] Closing application, unloading models...")
         self.set_status("Closing...")
 
-        # Stop voice assistant and wait for STT thread to fully terminate
-        # before Qt can destroy any QThread objects.
+        # 1. Stop any active chat generation so its QThread can exit cleanly
+        if hasattr(self, "handlers"):
+            if self.handlers._stop_event:
+                self.handlers._stop_event.set()
+            if self.handlers._thread and self.handlers._thread.isRunning():
+                self.handlers._thread.quit()
+                self.handlers._thread.wait(3000)
+
+        # 2. Stop model preloader thread if still running
+        if hasattr(self, "preloader_thread") and self.preloader_thread.isRunning():
+            self.preloader_thread.quit()
+            self.preloader_thread.wait(5000)
+
+        # 3. Stop voice assistant (recorder.shutdown has 8s timeout in stt.py)
         if VOICE_ASSISTANT_ENABLED:
             voice_assistant.stop()
 
-        unload_all_models(sync=False)  # fire-and-forget; Ollama reclaims VRAM on its own
+        # 4. Fire-and-forget model unload — Ollama reclaims VRAM on its own
+        unload_all_models(sync=False)
         event.accept()
 
 
