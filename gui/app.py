@@ -359,7 +359,7 @@ class MainWindow(FluentWindow):
         if VOICE_ASSISTANT_ENABLED:
             voice_assistant.stop()
 
-        unload_all_models(sync=True)
+        unload_all_models(sync=False)  # fire-and-forget; Ollama reclaims VRAM on its own
         event.accept()
 
 

@@ -20,7 +20,7 @@ class QwenModelManager:
         self.model_name = RESPONDER_MODEL
         self.last_used_time: Optional[float] = None
         self.is_loaded = False
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()  # Re-entrant: timeout loop holds lock then calls unload()
         self.timeout_thread: Optional[threading.Thread] = None
         self.monitoring = False
         self.http_session = requests.Session()
