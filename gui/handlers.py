@@ -265,10 +265,10 @@ class ChatWorker(QObject):
                 if result.get("success"):
                     context_msg = (
                         f"SHELL COMMAND OUTPUT (command: `{cmd}`):\n{output}\n\n"
-                        "Summarise this output naturally and concisely in the user's language."
+                        "Summarise this output naturally and concisely in French."
                     )
                 else:
-                    context_msg = f"SHELL COMMAND FAILED (command: `{cmd}`): {output}"
+                    context_msg = f"SHELL COMMAND FAILED (command: `{cmd}`): {output}. Explain the error in French."
             else:
                 context_msg = f"ACTION RESULT: {func_name} {status}. {result.get('message', '')}"
         
