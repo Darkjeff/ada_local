@@ -425,6 +425,13 @@ class MainWindow(FluentWindow):
         unload_all_models(sync=False)
         event.accept()
 
+        # 8. Force-kill the process: RealtimeSTT daemon threads (pvporcupine,
+        # tqdm monitor, whisper subprocess) cannot be joined and segfault when
+        # Python's interpreter teardown frees their memory. os._exit bypasses
+        # atexit/thread cleanup — all data was already saved above.
+        import os as _os
+        _os._exit(0)
+
 
 def create_app():
     """Create and return the main window."""
