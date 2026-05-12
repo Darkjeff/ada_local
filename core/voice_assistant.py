@@ -10,10 +10,11 @@ from typing import Optional
 from PySide6.QtCore import QObject, Signal
 
 from config import (
-    RESPONDER_MODEL, OLLAMA_URL, MAX_HISTORY, GRAY, RESET, CYAN, GREEN, WAKE_WORD
+    RESPONDER_MODEL, OLLAMA_URL, MAX_HISTORY, GRAY, RESET, CYAN, GREEN, WAKE_WORD,
+    FUNCTIONS
 )
 from core.stt import STTListener
-from core.llm import route_query, should_bypass_router, http_session
+from core.llm import http_session
 from core.model_persistence import ensure_qwen_loaded, mark_qwen_used, unload_qwen
 from core.tts import tts, SentenceBuffer
 from core.function_executor import executor as function_executor
@@ -146,10 +147,7 @@ class VoiceAssistant(QObject):
         """Process user query through the pipeline."""
         try:
             # ── Step 1: Semantic Router (fast, ~5ms) ──────────────────
-            if should_bypass_router(user_text):
-                semantic = "qwen_basic"
-            else:
-                semantic = semantic_route(user_text)
+            semantic = semantic_route(user_text)
 
             print(f"{GRAY}[VoiceAssistant] Semantic: {semantic}{RESET}")
 
@@ -183,35 +181,8 @@ class VoiceAssistant(QObject):
                 self._handle_print_control(user_text)
                 return
 
-            # ── Step 3: function_gemma → Function Gemma (existing flow) ──
-            func_name, params = route_query(user_text)
-            print(f"{GRAY}[VoiceAssistant] Function Gemma: {func_name}{RESET}")
-
-            if func_name in ACTION_FUNCTIONS:
-                result = function_executor.execute(func_name, params)
-
-                if func_name == "set_timer" and result.get("success"):
-                    seconds = result.get("data", {}).get("seconds", 0)
-                    label = result.get("data", {}).get("label", "Timer")
-                    self.timer_set.emit(seconds, label)
-                elif func_name == "set_alarm" and result.get("success"):
-                    self.alarm_added.emit()
-                elif func_name == "create_calendar_event" and result.get("success"):
-                    self.calendar_updated.emit()
-                elif func_name == "add_task" and result.get("success"):
-                    self.task_added.emit()
-
-                self._generate_response_with_context(func_name, result, user_text)
-
-            elif func_name == "get_system_info":
-                result = function_executor.execute(func_name, params)
-                self._generate_response_with_context(func_name, result, user_text, enable_thinking=True)
-
-            elif func_name in ("thinking", "nonthinking"):
-                self._stream_qwen_response(user_text, func_name == "thinking")
-
-            else:
-                self._stream_qwen_response(user_text, False)
+            # ── Step 3: function_gemma → Ollama tool-calling (no ML router) ──
+            self._handle_function_call(user_text)
 
         except Exception as e:
             error_msg = f"Error processing query: {e}"
@@ -219,6 +190,71 @@ class VoiceAssistant(QObject):
             self.error_occurred.emit(error_msg)
             self.processing_finished.emit()
     
+    def _handle_function_call(self, user_text: str):
+        """Dispatch via Ollama tool-calling — no ML router, no loky."""
+        ollama_url = OLLAMA_URL
+        model = RESPONDER_MODEL
+        try:
+            ensure_qwen_loaded()
+            mark_qwen_used()
+            resp = http_session.post(
+                f"{ollama_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a function dispatcher. You MUST call one of the available tools. "
+                                "NEVER respond with plain text. "
+                                "For system info (disk, RAM, CPU, processes, network): call shell_exec. "
+                                "For greetings or conversational questions: call passthrough."
+                            ),
+                        },
+                        {"role": "user", "content": user_text},
+                    ],
+                    "tools": FUNCTIONS,
+                    "stream": False,
+                    "think": False,
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            msg = resp.json().get("message", {})
+            tool_calls = msg.get("tool_calls", [])
+        except Exception as e:
+            print(f"{GRAY}[VoiceAssistant] Tool-call failed: {e}{RESET}")
+            self._stream_qwen_response(user_text, False)
+            return
+
+        if not tool_calls:
+            self._stream_qwen_response(user_text, False)
+            return
+
+        call = tool_calls[0]
+        func_name = call["function"]["name"]
+        params = call["function"].get("arguments", {})
+        print(f"{GRAY}[VoiceAssistant] Tool call: {func_name}{RESET}")
+
+        if func_name == "passthrough":
+            self._stream_qwen_response(user_text, bool(params.get("thinking", False)))
+            return
+
+        result = function_executor.execute(func_name, params)
+
+        if func_name == "set_timer" and result.get("success"):
+            seconds = result.get("data", {}).get("seconds", 0)
+            label = result.get("data", {}).get("label", "Timer")
+            self.timer_set.emit(seconds, label)
+        elif func_name == "set_alarm" and result.get("success"):
+            self.alarm_added.emit()
+        elif func_name == "create_calendar_event" and result.get("success"):
+            self.calendar_updated.emit()
+        elif func_name == "add_task" and result.get("success"):
+            self.task_added.emit()
+
+        self._generate_response_with_context(func_name, result, user_text)
+
     def _handle_vision(self, user_text: str):
         """Capture webcam + describe via gemma4, then read aloud via Qwen."""
         try:
