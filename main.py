@@ -3,13 +3,19 @@ Pocket AI - Main Entry Point
 """
 
 import os
+import faulthandler
+
+# Print C stack trace on segfault — gives us the actual crash location
+faulthandler.enable()
 
 # Must be set BEFORE any tokenizers/HuggingFace/loky import to prevent
 # semaphore leaks and segfault at shutdown caused by loky process pool.
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["LOKY_MAX_CPU_COUNT"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"   # no parallel tokenizers workers
+os.environ["JOBLIB_MULTIPROCESSING"] = "0"        # disable loky pool entirely
+os.environ["LOKY_MAX_CPU_COUNT"] = "1"            # hard cap if loky is still used
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import warnings
 import sys

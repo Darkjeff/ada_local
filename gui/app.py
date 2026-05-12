@@ -380,7 +380,15 @@ class MainWindow(FluentWindow):
         if VOICE_ASSISTANT_ENABLED:
             voice_assistant.stop()
 
-        # 4. Fire-and-forget model unload — Ollama reclaims VRAM on its own
+        # 4. Kill any loky/joblib process pool before Python atexit runs.
+        # This prevents the 25-semaphore leak that causes a segfault at shutdown.
+        try:
+            from loky import get_reusable_executor
+            get_reusable_executor().shutdown(wait=False, kill_workers=True)
+        except Exception:
+            pass
+
+        # 5. Fire-and-forget model unload — Ollama reclaims VRAM on its own
         unload_all_models(sync=False)
         event.accept()
 
