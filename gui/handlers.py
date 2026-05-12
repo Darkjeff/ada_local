@@ -206,12 +206,16 @@ class ChatWorker(QObject):
 
         self._yt_stream_synthesis(synthesis_messages, model, chat_url)
 
-        # Save original user message + final summary to history (NOT the raw transcript)
+        # Save original user message + final summary to history and semantic memory
         self.messages.append({"role": "user", "content": self.user_text})
         self.messages.append({"role": "assistant", "content": self.full_response})
         if self.current_session_id:
             history_manager.add_message(self.current_session_id, "user", self.user_text)
             history_manager.add_message(self.current_session_id, "assistant", self.full_response)
+        sid = self.current_session_id or "default"
+        memory_store.save(sid, "user", self.user_text)
+        if self.full_response:
+            memory_store.save(sid, "assistant", self.full_response)
 
     def _yt_summarize_chunk(
         self, url: str, model: str, chunk: str, idx: int, total: int, lang: str
