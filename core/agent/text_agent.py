@@ -23,7 +23,7 @@ You are a web browsing agent. You control a browser to complete tasks.
 At each step you receive the current page content and output ONE JSON action.
 
 Available actions:
-{"action": "navigate", "url": "https://..."}        - go to a URL (preferred for searches)
+{"action": "navigate", "url": "https://..."}        - go to a URL
 {"action": "click", "link_text": "link text here"}  - click a visible link by its text
 {"action": "scroll_down"}                            - scroll down to reveal more content
 {"action": "extract", "result": "..."}               - return info found (ends task)
@@ -31,12 +31,13 @@ Available actions:
 
 Rules:
 - Output ONLY the raw JSON object — no markdown, no explanation.
-- Use only ASCII characters in JSON strings; write accented letters directly (é è ê etc.), never \\uXXXX escapes.
-- For web searches always use navigate with a search URL, e.g.:
-    {"action": "navigate", "url": "https://www.google.com/search?q=figurines+glitter+glamour"}
-- After navigating, read the page content given to you and extract the answer.
-- Use "extract" or "done" as soon as you have enough information.
-- If a page has no useful info, try a different URL.
+- Write accented letters directly (é è ê etc.), NEVER \\uXXXX escapes.
+- ALWAYS use navigate with a Google search URL for any web search:
+    {"action": "navigate", "url": "https://www.google.com/search?q=your+query+here"}
+  Never use type/fill/selector — navigate directly.
+- After navigating, read the page content and extract the answer.
+- Use "extract" or "done" as soon as you have the information.
+- If a page has no useful info, navigate to a different URL.
 """
 
 
@@ -242,6 +243,34 @@ class TextBrowserAgent(QObject):
                 except Exception:
                     continue
             page.get_by_label(label_text).fill(value, timeout=3000)
+
+        elif name == "type":
+            # Model may generate type+selector (computer-use style) — support both forms
+            selector = action.get("selector", "")
+            text = action.get("text", "")
+            if selector and text:
+                try:
+                    page.fill(selector, text, timeout=5000)
+                    page.keyboard.press("Enter")
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
+                    return
+                except Exception:
+                    pass
+            # Fallback: build a Google search URL from the text
+            if text:
+                page.goto(f"https://www.google.com/search?q={urllib.parse.quote(text)}", timeout=20000)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass
+
+        elif name == "key":
+            keys = action.get("keys", action.get("key", ""))
+            if keys:
+                page.keyboard.press(keys)
 
         elif name == "scroll_down":
             page.mouse.wheel(0, 600)

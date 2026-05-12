@@ -36,12 +36,12 @@ class VLMClient:
                     "parameters": {
                         "properties": {
                             "action": {
-                                "description": "The action to perform.", 
-                                "enum": ["navigate", "left_click", "type", "scroll", "terminate"], 
+                                "description": "The action to perform.",
+                                "enum": ["navigate", "left_click", "type", "key", "scroll", "terminate"],
                                 "type": "string"
-                            }, 
+                            },
                             "url": {
-                                "description": "The URL to navigate to. Required for `action=navigate`.", 
+                                "description": "The URL to navigate to. Required for `action=navigate`.",
                                 "type": "string"
                             },
                             "coordinate": {
@@ -50,7 +50,11 @@ class VLMClient:
                                 "items": {"type": "integer"}
                             },
                             "text": {
-                                "description": "The text to type. Required for `action=type`.",
+                                "description": "The text to type. Required for `action=type`. You may also include a `selector` (CSS selector) to target a specific input.",
+                                "type": "string"
+                            },
+                            "keys": {
+                                "description": "Key to press. Required for `action=key`. Examples: 'Enter', 'Tab', 'Escape', 'Control+a'.",
                                 "type": "string"
                             },
                             "pixels": {
@@ -72,19 +76,26 @@ class VLMClient:
 
             For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags.
             
-            CRITICAL: You MUST ALWAYS output a <tool_call> block. 
-            - If the task is finished, use the 'computer_use' function with action='terminate'.
-            - If you need to act, use 'computer_use' with action='navigate'.
-            - NEVER provides a text-only response.
+            CRITICAL RULES:
+            - You MUST ALWAYS output exactly ONE <tool_call> block per turn. NEVER a text-only response.
+            - To search on Google: use `navigate` with url="https://www.google.com/search?q=YOUR+QUERY" — this is faster than typing.
+            - If you use `type` to fill a search box, ALWAYS follow it with `key` action with keys="Enter" on the next turn.
+            - If you see the same screen twice in a row, your previous action had no effect — try a different action.
+            - When the task is done and you have the information, use `terminate` with status="success".
 
             <tool_call>
             {"name": <function-name>, "arguments": <args-json-object>}
             </tool_call>
 
-            # Example
-            User: Go to google.com
+            # Examples
+            User: Search Google for "hantavirus news"
             Assistant: <tool_call>
-            {"name": "computer_use", "arguments": {"action": "navigate", "url": "https://google.com"}}
+            {"name": "computer_use", "arguments": {"action": "navigate", "url": "https://www.google.com/search?q=hantavirus+news"}}
+            </tool_call>
+
+            User: Press Enter to submit the form
+            Assistant: <tool_call>
+            {"name": "computer_use", "arguments": {"action": "key", "keys": "Enter"}}
             </tool_call>
             """
 

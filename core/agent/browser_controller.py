@@ -134,9 +134,15 @@ class BrowserController:
 
         elif action_name == "type":
             text = params.get("text")
+            selector = params.get("selector")
             if text:
-                # We type into the currently focused element
-                self.page.keyboard.type(text)
+                if selector:
+                    try:
+                        self.page.fill(selector, text)
+                    except Exception:
+                        self.page.keyboard.type(text)
+                else:
+                    self.page.keyboard.type(text)
 
         elif action_name == "key":
             keys = params.get("keys") # Expecting formatted keys like 'Enter', 'Control+C'
