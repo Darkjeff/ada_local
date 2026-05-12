@@ -5,8 +5,10 @@ No VLM needed: the agent reads page text/links instead of screenshots.
 
 import json
 import re
-import requests
 import time
+import urllib.parse
+
+import requests
 from PySide6.QtCore import QObject, Signal
 
 from core.settings_store import settings as app_settings
@@ -21,19 +23,20 @@ You are a web browsing agent. You control a browser to complete tasks.
 At each step you receive the current page content and output ONE JSON action.
 
 Available actions:
-{"action": "navigate", "url": "https://..."}          - go to a URL
-{"action": "click", "link_text": "exact link text"}   - click a link by its text
-{"action": "search", "query": "..."}                  - type in the main search/input box and submit
-{"action": "fill", "label": "...", "value": "..."}    - fill a form field by its label or placeholder
-{"action": "scroll_down"}                              - scroll down to see more content
-{"action": "extract", "result": "..."}                 - return information found on the page (ends task)
-{"action": "done", "result": "..."}                    - task complete, provide final answer (ends task)
+{"action": "navigate", "url": "https://..."}        - go to a URL (preferred for searches)
+{"action": "click", "link_text": "link text here"}  - click a visible link by its text
+{"action": "scroll_down"}                            - scroll down to reveal more content
+{"action": "extract", "result": "..."}               - return info found (ends task)
+{"action": "done", "result": "..."}                  - task complete, final answer (ends task)
 
 Rules:
-- Output ONLY the JSON object, nothing else.
-- Always start by navigating to a relevant URL.
-- Use "extract" or "done" once you have the answer.
-- If stuck after 3 steps, try a different approach (different URL or search query).
+- Output ONLY the raw JSON object — no markdown, no explanation.
+- Use only ASCII characters in JSON strings; write accented letters directly (é è ê etc.), never \\uXXXX escapes.
+- For web searches always use navigate with a search URL, e.g.:
+    {"action": "navigate", "url": "https://www.google.com/search?q=figurines+glitter+glamour"}
+- After navigating, read the page content given to you and extract the answer.
+- Use "extract" or "done" as soon as you have enough information.
+- If a page has no useful info, try a different URL.
 """
 
 
@@ -144,7 +147,7 @@ class TextBrowserAgent(QObject):
             except Exception as e:
                 self.step_update.emit(f"  ✗ Execution error: {e}")
 
-            time.sleep(1.5)  # let page settle
+            time.sleep(0.5)  # short settle after action+networkidle
 
         self.step_update.emit("Max steps reached.")
         self.result_ready.emit("I reached the step limit without completing the task.")
@@ -197,32 +200,35 @@ class TextBrowserAgent(QObject):
             url = action.get("url", "")
             if not url.startswith("http"):
                 url = "https://" + url
-            page.goto(url, timeout=15000)
+            page.goto(url, timeout=20000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass  # timeout is OK — page is probably usable
 
         elif name == "click":
             link_text = action.get("link_text", "")
-            # Try exact text, then partial
             try:
                 page.get_by_text(link_text, exact=True).first.click(timeout=5000)
             except Exception:
                 page.get_by_text(link_text).first.click(timeout=5000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=6000)
+            except Exception:
+                pass
 
         elif name == "search":
             query = action.get("query", "")
-            # Try common search input selectors
-            for sel in ["input[type='search']", "input[name='q']", "input[type='text']", "textarea"]:
-                try:
-                    page.fill(sel, query, timeout=3000)
-                    page.press(sel, "Enter")
-                    return
-                except Exception:
-                    continue
-            raise RuntimeError("No search input found")
+            # Prefer Google search URL — most reliable
+            page.goto(f"https://www.google.com/search?q={urllib.parse.quote(query)}", timeout=20000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
 
         elif name == "fill":
             label_text = action.get("label", "")
             value = action.get("value", "")
-            # Try placeholder or aria-label
             for attr in [f"input[placeholder*='{label_text}']",
                          f"input[aria-label*='{label_text}']",
                          f"textarea[placeholder*='{label_text}']"]:
@@ -231,11 +237,11 @@ class TextBrowserAgent(QObject):
                     return
                 except Exception:
                     continue
-            # Fallback: find by label element
             page.get_by_label(label_text).fill(value, timeout=3000)
 
         elif name == "scroll_down":
             page.mouse.wheel(0, 600)
+            time.sleep(0.5)
 
     def _parse_action(self, text: str) -> dict | None:
         # Strip markdown code blocks
