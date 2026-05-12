@@ -89,7 +89,20 @@ class ChatWorker(QObject):
                 f"{ollama_url}/api/chat",
                 json={
                     "model": model,
-                    "messages": [{"role": "user", "content": self.user_text}],
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a function dispatcher. You MUST call one of the available tools. "
+                                "NEVER respond with plain text. "
+                                "For any request about disk space, CPU, RAM, processes, files, network, "
+                                "system info, or running commands: call shell_exec with the appropriate "
+                                "Linux bash command (df -h, free -h, top -bn1, ps aux, etc.). "
+                                "For greetings or questions that need no action: call passthrough."
+                            ),
+                        },
+                        {"role": "user", "content": self.user_text},
+                    ],
                     "tools": FUNCTIONS,
                     "stream": False,
                     "think": False,
