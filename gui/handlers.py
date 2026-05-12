@@ -97,76 +97,180 @@ class ChatWorker(QObject):
         )
 
     def _handle_youtube(self):
-        """Fetch YouTube transcript and stream a Qwen summary/analysis."""
-        from core.youtube_transcript import extract_video_id, fetch_transcript
+        """
+        Full YouTube summarization pipeline:
+          1. Ingest (extract → retrieve → validate → chunk) — no LLM
+          2. Map  — summarize each chunk individually
+          3. Reduce — stream final structured synthesis to UI
 
-        self.status.emit("Fetching transcript...")
+        The LLM is NEVER called if transcript retrieval or validation fails.
+        The raw transcript is NEVER added to the persistent chat history.
+        """
+        from core.youtube_transcript import run_pipeline
 
-        video_id = extract_video_id(self.user_text)
-        if not video_id:
-            self._stream_qwen_response(False)
+        # ── Step 1: Ingestion ────────────────────────────────────────────────
+        self.status.emit("Récupération du transcript...")
+        pipeline = run_pipeline(self.user_text)
+
+        if not pipeline.success:
+            self.simple_response.emit(pipeline.error)
             return
 
-        result = fetch_transcript(video_id)
+        meta = pipeline.metadata()
+        lang = meta["language"]
+        chunks_n = meta["chunks"]
+        confidence_pct = f"{meta['confidence']:.0%}"
 
-        if not result["success"]:
-            error_msg = result["error"]
-            self.error.emit(f"YouTube transcript: {error_msg}")
-            return
-
-        transcript = result["text"]
-        lang = result["language"]
-
-        # Strip the URL from the user message to get the actual question
-        import re
-        question = re.sub(r"https?://\S+", "", self.user_text).strip()
+        import re as _re
+        question = _re.sub(r"https?://\S+", "", self.user_text).strip()
         if not question:
-            question = "Résume cette vidéo en français de façon concise."
-
-        context_prompt = (
-            f"[TRANSCRIPT YouTube — langue: {lang}]\n{transcript}\n\n"
-            f"Question de l'utilisateur : {question}\n\n"
-            "Réponds en français, de façon concise et structurée. "
-            "Base-toi uniquement sur le transcript ci-dessus."
-        )
-
-        # Inject as user message and stream Qwen response
-        max_hist = app_settings.get("general.max_history", MAX_HISTORY)
-        if len(self.messages) > max_hist:
-            self.messages = [self.messages[0]] + self.messages[-(max_hist - 1):]
-
-        self.messages.append({"role": "user", "content": context_prompt})
-
-        self.ui_update.emit()
-        self.status.emit("Generating response...")
+            question = "Résume cette vidéo en français de façon structurée."
 
         model = app_settings.get("models.chat", RESPONDER_MODEL)
+        ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
+        base = ollama_url.rstrip("/")
+        if base.endswith("/api"):
+            base = base[:-4]
+        generate_url = f"{base}/api/generate"
+        chat_url = f"{base}/api/chat"
+
         ensure_qwen_loaded()
         mark_qwen_used()
         ensure_exclusive_qwen(model)
-        ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
 
-        payload = {
-            "model": model,
-            "messages": self.messages,
-            "stream": True,
-            "think": False,
-            "keep_alive": "5m",
-        }
+        # ── Step 2: Map — summarize each chunk (non-streaming) ───────────────
+        if chunks_n == 1:
+            chunk_summaries = pipeline.chunks[:]
+        else:
+            chunk_summaries = []
+            for i, chunk in enumerate(pipeline.chunks, 1):
+                if self.stop_event.is_set():
+                    return
+                self.status.emit(f"Analyse du segment {i}/{chunks_n}...")
+                summary = self._yt_summarize_chunk(
+                    generate_url, model, chunk, i, chunks_n, lang
+                )
+                chunk_summaries.append(summary if summary else chunk[:600])
 
+        if not chunk_summaries:
+            self.simple_response.emit(
+                "Impossible de récupérer une transcription exploitable pour cette vidéo."
+            )
+            return
+
+        # ── Step 3: Reduce — build combined context, stream final answer ─────
+        self.status.emit("Synthèse en cours...")
+
+        if len(chunk_summaries) == 1:
+            combined = chunk_summaries[0]
+        else:
+            combined = "\n\n".join(
+                f"[Segment {i + 1}/{chunks_n}]\n{s}"
+                for i, s in enumerate(chunk_summaries)
+            )
+
+        synthesis_system = (
+            "Tu es un assistant d'analyse de vidéos YouTube. "
+            "Tu analyses UNIQUEMENT le transcript fourni dans le message utilisateur. "
+            "Tu n'inventes rien et tu ne complètes pas avec tes propres connaissances. "
+            "Si une information ne figure pas dans le transcript, tu l'ignores. "
+            "Réponds en français avec des titres en gras (**Titre**)."
+        )
+
+        synthesis_user = (
+            f"[TRANSCRIPT YouTube — langue: {lang}, {chunks_n} segment(s), "
+            f"confiance: {confidence_pct}]\n\n"
+            f"{combined}\n\n"
+            f"Question: {question}\n\n"
+            "Fournis une analyse structurée:\n"
+            "- **Sujet principal** de la vidéo\n"
+            "- **Points clés** (3 à 5 points)\n"
+            "- **Conclusions** ou enseignements\n"
+            "- **Insights actionnables** si pertinents\n\n"
+            "Base-toi UNIQUEMENT sur le transcript ci-dessus."
+        )
+
+        synthesis_messages = [
+            {"role": "system", "content": synthesis_system},
+            {"role": "user", "content": synthesis_user},
+        ]
+
+        header = (
+            f"📊 *Transcript · {lang} · {chunks_n} segment{'s' if chunks_n > 1 else ''} "
+            f"· confiance {confidence_pct}*\n\n"
+        )
+
+        self.ui_update.emit()
+        self.think_start.emit(False)
+        self.response_chunk.emit(header)
+
+        self._yt_stream_synthesis(synthesis_messages, model, chat_url)
+
+        # Save original user message + final summary to history (NOT the raw transcript)
+        self.messages.append({"role": "user", "content": self.user_text})
+        self.messages.append({"role": "assistant", "content": self.full_response})
+        if self.current_session_id:
+            history_manager.add_message(self.current_session_id, "user", self.user_text)
+            history_manager.add_message(self.current_session_id, "assistant", self.full_response)
+
+    def _yt_summarize_chunk(
+        self, url: str, model: str, chunk: str, idx: int, total: int, lang: str
+    ) -> str:
+        """Non-streaming chunk summary for the map step. Returns empty string on failure."""
+        try:
+            resp = http_session.post(
+                url,
+                json={
+                    "model": model,
+                    "system": (
+                        "Tu résumes des segments de transcript YouTube. "
+                        "Tu utilises UNIQUEMENT le texte fourni. "
+                        "Tu n'inventes rien et tu ne complètes pas avec tes connaissances."
+                    ),
+                    "prompt": (
+                        f"[Segment {idx}/{total} — langue: {lang}]\n\n{chunk}\n\n"
+                        "Résume ce segment en 3 à 5 phrases clés. "
+                        "Utilise uniquement le texte ci-dessus."
+                    ),
+                    "stream": False,
+                    "think": False,
+                    "options": {"num_predict": 400, "temperature": 0.1},
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response", "").strip()
+        except Exception as e:
+            print(f"[YouTube] Chunk {idx}/{total} summary error: {e}")
+            return ""
+
+    def _yt_stream_synthesis(self, messages: list, model: str, chat_url: str):
+        """Stream the final synthesis to the UI without touching self.messages."""
         sentence_buffer = SentenceBuffer()
         self.full_response = ""
-        self.think_start.emit(False)
 
-        with http_session.post(f"{ollama_url}/api/chat", json=payload, stream=True) as r:
-            r.raise_for_status()
-            for line in r.iter_lines():
-                if self.stop_event.is_set():
-                    break
-                if line:
+        try:
+            with http_session.post(
+                chat_url,
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "stream": True,
+                    "think": False,
+                    "keep_alive": "5m",
+                },
+                stream=True,
+                timeout=120,
+            ) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if self.stop_event.is_set():
+                        break
+                    if not line:
+                        continue
                     try:
-                        chunk = json.loads(line.decode("utf-8"))
-                        content = chunk.get("message", {}).get("content", "")
+                        tok = json.loads(line.decode("utf-8"))
+                        content = tok.get("message", {}).get("content", "")
                         if content:
                             self.full_response += content
                             self.response_chunk.emit(content)
@@ -175,6 +279,8 @@ class ChatWorker(QObject):
                                     tts.queue_sentence(s)
                     except Exception:
                         continue
+        except Exception as e:
+            self.response_chunk.emit(f"\n\n*Erreur de génération : {e}*")
 
         self.think_end.emit()
 
@@ -182,10 +288,6 @@ class ChatWorker(QObject):
             rem = sentence_buffer.flush()
             if rem:
                 tts.queue_sentence(rem)
-
-        self.messages.append({"role": "assistant", "content": self.full_response})
-        if self.current_session_id:
-            history_manager.add_message(self.current_session_id, "assistant", self.full_response)
 
     def _direct_shell_dispatch(self) -> bool:
         """
