@@ -753,6 +753,7 @@ class HATab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._destroyed = False
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(0, 20, 0, 0)
         self._content = None
@@ -805,6 +806,8 @@ class HATab(QWidget):
                     pass
 
     def _on_silent_refresh(self, entities: dict):
+        if self._destroyed:
+            return
         try:
             if not entities or not hasattr(self, "ha_entities"):
                 return
@@ -812,7 +815,6 @@ class HATab(QWidget):
             self.ha_room_groups = self._categorize(self.ha_entities)
             self._filter_ha_grid(self._active_room)
         except RuntimeError:
-            # Qt C++ object deleted during shutdown — ignore
             pass
 
     def refresh(self):
@@ -972,6 +974,7 @@ class HATab(QWidget):
         return groups
 
     def closeEvent(self, event):
+        self._destroyed = True
         try:
             if hasattr(self, "_refresh_timer"):
                 self._refresh_timer.stop()
@@ -979,40 +982,43 @@ class HATab(QWidget):
             pass
         super().closeEvent(event)
 
+    def _clear_grid(self):
+        """Remove all widgets from ha_grid_layout using takeAt to avoid dangling pointers."""
+        if not hasattr(self, "ha_grid_layout"):
+            return
+        try:
+            while self.ha_grid_layout.count():
+                item = self.ha_grid_layout.takeAt(0)
+                if item is None:
+                    break
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
+        except RuntimeError:
+            pass
+
     def _filter_ha_grid(self, room_name: str):
+        if self._destroyed:
+            return
         self._active_room = room_name
+
         try:
             for btn_room, btn in self._filter_buttons.items():
                 btn.setChecked(btn_room == room_name)
         except RuntimeError:
             return
 
-        try:
-            count = self.ha_grid_layout.count()
-        except RuntimeError:
-            return
+        self._clear_grid()
 
-        for i in reversed(range(count)):
-            try:
-                item = self.ha_grid_layout.itemAt(i)
-            except RuntimeError:
-                return
-            if item is None:
-                continue
-            try:
-                w = item.widget()
-            except RuntimeError:
-                return
-            if w is not None:
-                try:
-                    w.setParent(None)
-                except RuntimeError:
-                    pass
+        if self._destroyed:
+            return
 
         items = (self.ha_entities if room_name == "All"
                  else self.ha_room_groups.get(room_name, []))
         row = col = 0
         for e in items:
+            if self._destroyed:
+                return
             try:
                 card = HAEntityCard(e["entity_id"], e)
                 self.ha_grid_layout.addWidget(card, row, col)
