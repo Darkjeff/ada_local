@@ -17,6 +17,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"  # reduce CUDA cleanup semaphores
+os.environ["PYTHONWARNINGS"] = "ignore::UserWarning"  # suppress resource_tracker semaphore warning in subprocesses
 
 import warnings
 import sys
