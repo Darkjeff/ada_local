@@ -39,6 +39,37 @@ class _DeviceProbeThread(QThread):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# HA helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _format_ha_players(entities: dict) -> list[dict]:
+    """
+    Convert HA media_player entities dict to a list for display.
+
+    Args:
+        entities: dict mapping entity_id → entity state dict (from ha_manager)
+
+    Returns:
+        list of {"entity_id": str, "name": str} sorted by name
+    """
+    result = []
+    for eid, info in entities.items():
+        name = info.get("attributes", {}).get("friendly_name") or eid
+        result.append({"entity_id": eid, "name": name})
+    return sorted(result, key=lambda x: x["name"].lower())
+
+
+class _HAProbeThread(QThread):
+    """Fetch HA media_player entities in background; emit result list when done."""
+    done = Signal(list)   # list of {"entity_id": str, "name": str}
+
+    def run(self) -> None:
+        from core.ha_control import ha_manager
+        entities = ha_manager.get_media_player_entities()
+        self.done.emit(_format_ha_players(entities))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Custom SettingCard subclasses
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -208,6 +239,132 @@ class CapabilityCard(SettingCard):
         self._refresh_badge()
 
 
+class _SpeechOutputCard(SettingCard):
+    """
+    ComboBox card for selecting where ADA speaks.
+
+    Item 0 is always "Local Speaker" (mode='local', entity_id='').
+    HA media players are appended by populate_ha_players() after probe.
+    userData for each item is a tuple (mode: str, entity_id: str).
+    """
+    output_changed = Signal(str, str)   # (mode, entity_id)
+
+    def __init__(self, parent=None):
+        super().__init__(
+            FIF.SPEAKERS,
+            tr("senses.speech_output_mode"),
+            tr("senses.speech_output_mode_desc"),
+            parent
+        )
+        self.combo = ComboBox(self)
+        self.combo.setMinimumWidth(280)
+        self.combo.addItem(tr("senses.speech_output_local"), userData=("local", ""))
+        self.combo.currentIndexChanged.connect(self._on_changed)
+        self.hBoxLayout.addWidget(self.combo, 0, Qt.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def populate_ha_players(self, players: list[dict]) -> None:
+        """
+        Replace all HA items in the combo with the given players list.
+        Called from main thread after _HAProbeThread finishes.
+        Restores the previously saved selection when possible.
+        """
+        self.combo.blockSignals(True)
+        # Remove all items after the "Local Speaker" entry (index 0)
+        while self.combo.count() > 1:
+            self.combo.removeItem(1)
+        for p in players:
+            self.combo.addItem(f"[HA] {p['name']}", userData=("ha_media_player", p["entity_id"]))
+        # Restore saved selection
+        saved_mode = settings.get("senses.speech_output_mode", "local")
+        saved_entity = settings.get("senses.ha_tts_entity", "")
+        for i in range(self.combo.count()):
+            mode, entity_id = self.combo.itemData(i)
+            if mode == saved_mode and entity_id == saved_entity:
+                self.combo.setCurrentIndex(i)
+                break
+        self.combo.blockSignals(False)
+
+    def _on_changed(self, combo_idx: int) -> None:
+        data = self.combo.itemData(combo_idx)
+        if data is not None:
+            mode, entity_id = data
+            settings.set("senses.speech_output_mode", mode)
+            settings.set("senses.ha_tts_entity", entity_id)
+            self.output_changed.emit(mode, entity_id)
+
+    def retranslate(self) -> None:
+        self.titleLabel.setText(tr("senses.speech_output_mode"))
+        self.contentLabel.setText(tr("senses.speech_output_mode_desc"))
+        # Update the "Local Speaker" entry text (always item 0)
+        if self.combo.count() > 0:
+            self.combo.blockSignals(True)
+            mode, entity_id = self.combo.itemData(0)
+            if mode == "local":
+                self.combo.setItemText(0, tr("senses.speech_output_local"))
+            self.combo.blockSignals(False)
+
+
+class _LineEditCard(SettingCard):
+    """
+    SettingCard containing a LineEdit for single-line text settings.
+    Saves to settings on editingFinished (Enter key or focus loss).
+    """
+    text_changed = Signal(str)
+
+    def __init__(self, icon, title: str, description: str,
+                 settings_key: str, placeholder: str = "", parent=None):
+        super().__init__(icon, title, description, parent)
+        self._settings_key = settings_key
+
+        from qfluentwidgets import LineEdit
+        self.edit = LineEdit(self)
+        self.edit.setMinimumWidth(220)
+        self.edit.setPlaceholderText(placeholder)
+        self.edit.setText(settings.get(settings_key, "") or "")
+        self.edit.editingFinished.connect(self._on_finished)
+        self.hBoxLayout.addWidget(self.edit, 0, Qt.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def _on_finished(self) -> None:
+        value = self.edit.text().strip()
+        settings.set(self._settings_key, value)
+        self.text_changed.emit(value)
+
+    def retranslate(self, title: str, description: str, placeholder: str = "") -> None:
+        self.titleLabel.setText(title)
+        self.contentLabel.setText(description)
+        if placeholder:
+            self.edit.setPlaceholderText(placeholder)
+
+
+class _IntentInfoCard(SettingCard):
+    """
+    Read-only card explaining that Alexa and Google Home are intent-only inputs.
+    Shows an amber "Intent only" badge to indicate no raw audio access.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(
+            FIF.INFO,
+            tr("senses.intent_inputs"),
+            tr("senses.intent_note"),
+            parent
+        )
+        self._badge = QLabel(tr("senses.badge_intent_only"), self)
+        self._badge.setStyleSheet(
+            "color: #f59e0b; font-size: 12px; font-weight: 500;"
+            " background: rgba(245,158,11,0.12); border-radius: 4px; padding: 2px 8px;"
+        )
+        self.hBoxLayout.addWidget(self._badge, 0, Qt.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def retranslate(self) -> None:
+        self.titleLabel.setText(tr("senses.intent_inputs"))
+        self.contentLabel.setText(tr("senses.intent_note"))
+        self._badge.setText(tr("senses.badge_intent_only"))
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main tab
 # ──────────────────────────────────────────────────────────────────────────────
@@ -227,6 +384,7 @@ class SensesTab(ScrollArea):
         super().__init__(parent)
         self.setObjectName("sensesInterface")
         self._probe_thread: _DeviceProbeThread | None = None
+        self._ha_probe_thread: _HAProbeThread | None = None
 
         # Central scroll container — mirrors settings.py structure so
         # qfluentwidgets theme engine applies the same card/background styles
@@ -243,6 +401,7 @@ class SensesTab(ScrollArea):
 
         self._build_ui()
         self._probe_devices()
+        self._probe_ha_devices()
         i18n.language_changed.connect(self.retranslate_ui)
 
     # ── UI construction ────────────────────────────────────────────────────
@@ -328,6 +487,37 @@ class SensesTab(ScrollArea):
 
         self._layout.addWidget(self.cap_group)
 
+        # ── 5. Remote Endpoints ────────────────────────────────────────────
+        self.endpoints_group = SettingCardGroup(tr("senses.endpoints"), self._content)
+
+        self.speech_output_card = _SpeechOutputCard(self.endpoints_group)
+        self.endpoints_group.addSettingCard(self.speech_output_card)
+
+        self.ha_tts_service_card = _LineEditCard(
+            icon=FIF.HEADPHONE,
+            title=tr("senses.ha_tts_service"),
+            description=tr("senses.ha_tts_service_desc"),
+            settings_key="home_assistant.tts_service",
+            placeholder=tr("senses.ha_tts_service_placeholder"),
+            parent=self.endpoints_group,
+        )
+        self.endpoints_group.addSettingCard(self.ha_tts_service_card)
+
+        self.test_speech_card = PushSettingCard(
+            text=tr("senses.test_speech_btn"),
+            icon=FIF.VOLUME,
+            title=tr("senses.test_speech"),
+            content=tr("senses.test_speech_desc"),
+            parent=self.endpoints_group,
+        )
+        self.test_speech_card.clicked.connect(self._on_test_speech)
+        self.endpoints_group.addSettingCard(self.test_speech_card)
+
+        self.intent_info_card = _IntentInfoCard(self.endpoints_group)
+        self.endpoints_group.addSettingCard(self.intent_info_card)
+
+        self._layout.addWidget(self.endpoints_group)
+
     # ── Hardware probing ───────────────────────────────────────────────────
 
     def _probe_devices(self) -> None:
@@ -346,6 +536,58 @@ class SensesTab(ScrollArea):
 
         saved_out = settings.get("senses.audio_output_device", -1)
         self.output_card.populate(outputs, saved_out)
+
+    def _probe_ha_devices(self) -> None:
+        """Start HA media player probe if HA is configured and enabled."""
+        if not settings.get("home_assistant.enabled", False):
+            return
+        self._ha_probe_thread = _HAProbeThread()
+        self._ha_probe_thread.done.connect(self._on_ha_devices_ready)
+        self._ha_probe_thread.finished.connect(self._ha_probe_thread.deleteLater)
+        self._ha_probe_thread.start()
+
+    def _on_ha_devices_ready(self, players: list) -> None:
+        """Populate speech output combo with discovered HA media players."""
+        self.speech_output_card.populate_ha_players(players)
+        # Register HA media players in SensesManager for speech dispatch
+        from core.senses_manager import senses_manager
+        for p in players:
+            senses_manager.register_device({
+                "id": p["entity_id"],
+                "name": p["name"],
+                "device_type": "speech_output",
+                "source": "home_assistant",
+                "privacy": "local_or_cloud_dependent",
+                "enabled": True,
+                "entity_id": p["entity_id"],
+            })
+
+    def _on_test_speech(self) -> None:
+        """Send a test phrase to the currently configured speech output."""
+        from qfluentwidgets import InfoBar, InfoBarPosition
+        from core.senses_manager import senses_manager
+        phrase = tr("senses.test_speech_phrase")
+        ok = senses_manager.send_speech(phrase)
+        if ok:
+            InfoBar.success(
+                title=tr("senses.test_speech_sent"),
+                content="",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self.window(),
+            )
+        else:
+            InfoBar.warning(
+                title="TTS failed",
+                content="Check the application logs for details.",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self.window(),
+            )
 
     # ── Capabilities check ─────────────────────────────────────────────────
 
@@ -442,3 +684,16 @@ class SensesTab(ScrollArea):
         self.cap_group.titleLabel.setText(tr("senses.capabilities"))
         for card in self._cap_cards:
             card.retranslate()
+
+        # Remote Endpoints
+        self.endpoints_group.titleLabel.setText(tr("senses.endpoints"))
+        self.speech_output_card.retranslate()
+        self.ha_tts_service_card.retranslate(
+            tr("senses.ha_tts_service"),
+            tr("senses.ha_tts_service_desc"),
+            tr("senses.ha_tts_service_placeholder"),
+        )
+        self.test_speech_card.titleLabel.setText(tr("senses.test_speech"))
+        self.test_speech_card.contentLabel.setText(tr("senses.test_speech_desc"))
+        self.test_speech_card.button.setText(tr("senses.test_speech_btn"))
+        self.intent_info_card.retranslate()
