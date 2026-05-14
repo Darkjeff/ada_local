@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QDialog
+    QWidget, QLabel, QDialog, QVBoxLayout
 )
 from qfluentwidgets import (
-    ScrollArea, SettingCardGroup, SettingCard, PushSettingCard,
+    ScrollArea, ExpandLayout, SettingCardGroup, SettingCard, PushSettingCard,
     FluentIcon as FIF, ComboBox
 )
 
@@ -228,14 +228,16 @@ class SensesTab(ScrollArea):
         self.setObjectName("sensesInterface")
         self._probe_thread: _DeviceProbeThread | None = None
 
-        # Central scroll container
+        # Central scroll container — mirrors settings.py structure so
+        # qfluentwidgets theme engine applies the same card/background styles
         self._content = QWidget()
-        self._content.setObjectName("sensesContent")
+        self._content.setObjectName("scrollWidget")
+        self.setStyleSheet("background-color: transparent;")
         self.setWidget(self._content)
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        self._layout = QVBoxLayout(self._content)
+        self._layout = ExpandLayout(self._content)
         self._layout.setSpacing(16)
         self._layout.setContentsMargins(36, 28, 36, 28)
 
@@ -325,7 +327,6 @@ class SensesTab(ScrollArea):
             self.cap_group.addSettingCard(card)
 
         self._layout.addWidget(self.cap_group)
-        self._layout.addStretch(1)
 
     # ── Hardware probing ───────────────────────────────────────────────────
 
