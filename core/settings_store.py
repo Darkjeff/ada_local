@@ -54,6 +54,11 @@ DEFAULT_SETTINGS = {
     "briefing": {
         "enabled": False,
         "hour": 7
+    },
+    "senses": {
+        "camera_index": 0,
+        "audio_input_device": -1,   # -1 = system default
+        "audio_output_device": -1,  # -1 = system default
     }
 }
 
