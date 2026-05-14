@@ -277,14 +277,14 @@ class SensesTab(ScrollArea):
         self.audio_group.addSettingCard(self.mic_card)
 
         from core.voice_assistant import voice_assistant
-        stt_active = getattr(voice_assistant, "running", False)
-        stt_text = (tr("senses.audio_stt_status_active") if stt_active
+        self._stt_active = getattr(voice_assistant, "running", False)
+        stt_text = (tr("senses.audio_stt_status_active") if self._stt_active
                     else tr("senses.audio_stt_status_inactive"))
         self.stt_card = _StatusCard(
             icon=FIF.HEADPHONE,
             title=tr("senses.audio_stt_status"),
             status_text=stt_text,
-            active=stt_active,
+            active=self._stt_active,
             parent=self.audio_group,
         )
         self.audio_group.addSettingCard(self.stt_card)
@@ -333,6 +333,7 @@ class SensesTab(ScrollArea):
         """Start background device probe; populate combos when done."""
         self._probe_thread = _DeviceProbeThread()
         self._probe_thread.done.connect(self._on_devices_ready)
+        self._probe_thread.finished.connect(self._probe_thread.deleteLater)
         self._probe_thread.start()
 
     def _on_devices_ready(self, cameras: list, inputs: list, outputs: list) -> None:
@@ -389,8 +390,7 @@ class SensesTab(ScrollArea):
         dialog.setMinimumSize(560, 420)
         dialog.setStyleSheet("QDialog { background: #1a1a2e; }")
 
-        from PySide6.QtWidgets import QVBoxLayout as _VBoxLayout
-        layout = _VBoxLayout(dialog)
+        layout = QVBoxLayout(dialog)
         layout.setContentsMargins(12, 12, 12, 12)
 
         live = CameraLiveWidget(camera_index=cam_idx, parent=dialog)
@@ -415,6 +415,10 @@ class SensesTab(ScrollArea):
         self.audio_group.titleLabel.setText(tr("senses.audio"))
         self.mic_card.retranslate(tr("senses.audio_mic"), tr("senses.audio_mic_desc"))
         self.stt_card.retranslate(tr("senses.audio_stt_status"))
+        self.stt_card.set_status(
+            tr("senses.audio_stt_status_active" if self._stt_active else "senses.audio_stt_status_inactive"),
+            self._stt_active
+        )
 
         # Voice
         self.voice_group.titleLabel.setText(tr("senses.voice"))
