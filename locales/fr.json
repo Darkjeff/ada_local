@@ -143,6 +143,8 @@
     "badge_local": "Local",
     "badge_ha": "Home Assistant",
     "badge_cloud": "Cloud",
-    "badge_intent_only": "Intention seulement"
+    "badge_intent_only": "Intention seulement",
+    "test_speech_failed": "Échec de la synthèse vocale",
+    "test_speech_failed_detail": "Consultez les journaux de l'application pour plus de détails."
   }
 }

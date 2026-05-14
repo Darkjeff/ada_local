@@ -64,9 +64,13 @@ class _HAProbeThread(QThread):
     done = Signal(list)   # list of {"entity_id": str, "name": str}
 
     def run(self) -> None:
-        from core.ha_control import ha_manager
-        entities = ha_manager.get_media_player_entities()
-        self.done.emit(_format_ha_players(entities))
+        try:
+            from core.ha_control import ha_manager
+            entities = ha_manager.get_media_player_entities()
+            self.done.emit(_format_ha_players(entities))
+        except Exception as e:
+            print(f"[_HAProbeThread] Failed to fetch HA media players: {e}")
+            self.done.emit([])
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -580,8 +584,8 @@ class SensesTab(ScrollArea):
             )
         else:
             InfoBar.warning(
-                title="TTS failed",
-                content="Check the application logs for details.",
+                title=tr("senses.test_speech_failed"),
+                content=tr("senses.test_speech_failed_detail"),
                 orient=Qt.Horizontal,
                 isClosable=True,
                 position=InfoBarPosition.TOP,

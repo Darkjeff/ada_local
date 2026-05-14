@@ -143,6 +143,8 @@
     "badge_local": "Local",
     "badge_ha": "Home Assistant",
     "badge_cloud": "Cloud",
-    "badge_intent_only": "Intent only"
+    "badge_intent_only": "Intent only",
+    "test_speech_failed": "TTS failed",
+    "test_speech_failed_detail": "Check the application logs for details."
   }
 }
