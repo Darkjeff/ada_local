@@ -40,8 +40,8 @@ DEFAULT_SETTINGS = {
         "url": "",
         "token": "",
         "enabled": False,
-        "tts_service": "tts.piper",       # HA TTS engine entity (e.g. tts.piper, tts.google_translate)
-        "tts_target_entity": "",           # HA media_player entity_id for speech output
+        "tts_service": "tts.piper",        # HA TTS engine entity (e.g. tts.piper, tts.google_translate)
+        "tts_target_entity": "",           # Reserved: future Settings-tab HA TTS config (distinct from runtime senses.ha_tts_entity)
     },
     "k1": {
         "ip": "",

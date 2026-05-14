@@ -32,6 +32,8 @@ REQUIRED_SENSES_KEYS = [
     "badge_ha",
     "badge_cloud",
     "badge_intent_only",
+    "test_speech_failed",
+    "test_speech_failed_detail",
 ]
 
 

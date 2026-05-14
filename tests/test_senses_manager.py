@@ -203,6 +203,41 @@ class TestSpeechDispatch(unittest.TestCase):
         mock_local.assert_not_called()
         self.assertFalse(result)
 
+    def test_send_speech_routes_to_ha_via_settings_mode(self):
+        """send_speech() with no target uses ha_media_player mode from settings."""
+        sm = make_manager()
+        sm.register_device({
+            "id": "media_player.living_room",
+            "name": "Living Room",
+            "device_type": "speech_output",
+            "source": "home_assistant",
+            "privacy": "local_or_cloud_dependent",
+            "enabled": True,
+            "entity_id": "media_player.living_room",
+        })
+        with patch("core.senses_manager.settings") as mock_settings, \
+             patch.object(sm, "_send_ha_speech", return_value=True) as mock_ha:
+            mock_settings.get.side_effect = lambda key, default=None: {
+                "senses.speech_output_mode": "ha_media_player",
+                "senses.ha_tts_entity": "media_player.living_room",
+            }.get(key, default)
+            result = sm.send_speech("Hello via HA")
+        mock_ha.assert_called_once_with("Hello via HA", "media_player.living_room")
+        self.assertTrue(result)
+
+    def test_send_speech_falls_back_to_local_when_ha_entity_empty(self):
+        """send_speech() falls back to local_speaker when ha_tts_entity is empty string."""
+        sm = make_manager()
+        with patch("core.senses_manager.settings") as mock_settings, \
+             patch.object(sm, "_send_local_speech", return_value=True) as mock_local:
+            mock_settings.get.side_effect = lambda key, default=None: {
+                "senses.speech_output_mode": "ha_media_player",
+                "senses.ha_tts_entity": "",
+            }.get(key, default)
+            result = sm.send_speech("Fallback test")
+        mock_local.assert_called_once_with("Fallback test")
+        self.assertTrue(result)
+
     def test_send_local_speech_calls_tts_queue_sentence(self):
         """_send_local_speech() calls tts.queue_sentence() and returns True."""
         import sys

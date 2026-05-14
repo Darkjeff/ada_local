@@ -194,6 +194,8 @@ class SensesManager:
             intent_bridge.route_intent(intent_text)
         except ImportError:
             print(f"[SensesManager] IntentBridge not available yet — intent dropped: {intent_text!r}")
+        except Exception as e:
+            print(f"[SensesManager] IntentBridge routing failed: {e}")
 
 
 # Global singleton
