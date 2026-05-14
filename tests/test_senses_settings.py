@@ -51,11 +51,12 @@ class TestSensesDefaults(unittest.TestCase):
         defaults = self._get_defaults()
         self.assertEqual(defaults['senses']['audio_output_device'], -1)
 
-    def test_all_values_are_integers(self):
-        """All senses defaults are integers."""
+    def test_device_index_values_are_integers(self):
+        """camera_index, audio_input_device, audio_output_device are integers (-1 or 0+)."""
         defaults = self._get_defaults()
-        for key, val in defaults['senses'].items():
-            self.assertIsInstance(val, int, f"senses.{key} should be int, got {type(val)}")
+        senses = defaults['senses']
+        for key in ('camera_index', 'audio_input_device', 'audio_output_device'):
+            self.assertIsInstance(senses[key], int, f"senses.{key} should be int")
 
 
 if __name__ == '__main__':

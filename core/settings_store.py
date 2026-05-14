@@ -39,7 +39,9 @@ DEFAULT_SETTINGS = {
     "home_assistant": {
         "url": "",
         "token": "",
-        "enabled": False
+        "enabled": False,
+        "tts_service": "tts.piper",       # HA TTS engine entity (e.g. tts.piper, tts.google_translate)
+        "tts_target_entity": "",           # HA media_player entity_id for speech output
     },
     "k1": {
         "ip": "",
@@ -57,8 +59,10 @@ DEFAULT_SETTINGS = {
     },
     "senses": {
         "camera_index": 0,
-        "audio_input_device": -1,   # -1 = system default
-        "audio_output_device": -1,  # -1 = system default
+        "audio_input_device": -1,          # -1 = system default
+        "audio_output_device": -1,         # -1 = system default
+        "speech_output_mode": "local",     # "local" | "ha_media_player"
+        "ha_tts_entity": "",               # selected HA media_player entity_id (device id in registry)
     }
 }
 
