@@ -148,6 +148,60 @@ class HAManager:
             if eid.split(".")[0] in CAMERA_DOMAINS
         }
 
+    def get_media_player_entities(self) -> dict[str, Any]:
+        """
+        Returns media_player entities suitable as TTS output targets.
+        Reuses _raw_entities cache if already populated by get_entities().
+        """
+        raw = self._raw_entities or self._fetch_all_states()
+        return {
+            eid: info for eid, info in raw.items()
+            if eid.split(".")[0] == "media_player"
+        }
+
+    def speak_to_media_player(
+        self, entity_id: str, text: str, tts_service: str = "tts.piper"
+    ) -> bool:
+        """
+        Send TTS speech to a media_player entity via HA's tts.speak service.
+
+        Uses POST /api/services/tts/speak with the following payload:
+          entity_id              — the TTS engine entity (e.g. "tts.piper")
+          media_player_entity_id — the output target (e.g. "media_player.living_room")
+          message                — the text to speak
+
+        Args:
+            entity_id:   HA media_player entity to speak through
+            text:        Text to synthesize and play
+            tts_service: HA TTS engine entity_id (default: "tts.piper")
+
+        Returns True on success, False on any error.
+        """
+        if not self._url or not self._token:
+            return False
+        try:
+            payload = {
+                "entity_id": tts_service,
+                "media_player_entity_id": entity_id,
+                "message": text,
+            }
+            resp = requests.post(
+                f"{self._url}/api/services/tts/speak",
+                headers=self._headers(),
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code not in (200, 201):
+                print(
+                    f"[HAManager] speak_to_media_player HTTP {resp.status_code} "
+                    f"for {entity_id!r}"
+                )
+                return False
+            return True
+        except Exception as e:
+            print(f"[HAManager] speak_to_media_player({entity_id!r}) failed: {e}")
+            return False
+
     def get_camera_snapshot(self, entity_id: str) -> bytes | None:
         """GET /api/camera_proxy/{entity_id} — returns raw image bytes or None."""
         if not self._url or not self._token:
