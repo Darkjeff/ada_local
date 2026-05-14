@@ -124,6 +124,25 @@
     "cap_memory": "Mémoire sémantique",
     "cap_printers": "Imprimantes 3D",
     "cap_active": "Actif",
-    "cap_inactive": "Inactif"
+    "cap_inactive": "Inactif",
+    "endpoints": "Points d'accès distants",
+    "endpoints_desc": "Périphériques d'entrée et de sortie vocale externes",
+    "speech_output_mode": "Sortie vocale",
+    "speech_output_mode_desc": "Où ADA s'exprime : haut-parleur local ou lecteur HA",
+    "speech_output_local": "Haut-parleur local",
+    "ha_tts_service": "Service TTS HA",
+    "ha_tts_service_desc": "Entité moteur TTS de Home Assistant (ex. tts.piper)",
+    "ha_tts_service_placeholder": "tts.piper",
+    "test_speech": "Tester la sortie vocale",
+    "test_speech_desc": "Envoyer une phrase test au périphérique de sortie sélectionné",
+    "test_speech_btn": "Tester",
+    "test_speech_phrase": "Bonjour, ADA s'exprime.",
+    "test_speech_sent": "Synthèse vocale envoyée",
+    "intent_inputs": "Entrées par intention",
+    "intent_note": "Alexa et Google Home envoient uniquement des commandes texte — ADA n'a pas accès à leur audio brut.",
+    "badge_local": "Local",
+    "badge_ha": "Home Assistant",
+    "badge_cloud": "Cloud",
+    "badge_intent_only": "Intention seulement"
   }
 }

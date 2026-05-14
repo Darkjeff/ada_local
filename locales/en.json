@@ -124,6 +124,25 @@
     "cap_memory": "Semantic Memory",
     "cap_printers": "3D Printers",
     "cap_active": "Active",
-    "cap_inactive": "Inactive"
+    "cap_inactive": "Inactive",
+    "endpoints": "Remote Endpoints",
+    "endpoints_desc": "External voice input and output devices",
+    "speech_output_mode": "Speech Output",
+    "speech_output_mode_desc": "Where ADA speaks: local speaker or HA media player",
+    "speech_output_local": "Local Speaker",
+    "ha_tts_service": "HA TTS Service",
+    "ha_tts_service_desc": "Home Assistant TTS engine entity (e.g. tts.piper)",
+    "ha_tts_service_placeholder": "tts.piper",
+    "test_speech": "Test Speech Output",
+    "test_speech_desc": "Send a test phrase to the selected output device",
+    "test_speech_btn": "Test",
+    "test_speech_phrase": "Hello, ADA is speaking.",
+    "test_speech_sent": "Speech dispatched",
+    "intent_inputs": "Intent Inputs",
+    "intent_note": "Alexa and Google Home send text commands only — ADA never has access to their raw audio.",
+    "badge_local": "Local",
+    "badge_ha": "Home Assistant",
+    "badge_cloud": "Cloud",
+    "badge_intent_only": "Intent only"
   }
 }
