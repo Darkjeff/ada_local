@@ -145,5 +145,167 @@ class TestRegistry(unittest.TestCase):
             self.assertEqual(d["privacy"], "local", f"{d['id']} should have local privacy")
 
 
+class TestSpeechDispatch(unittest.TestCase):
+
+    def test_send_speech_calls_local_speech_by_default(self):
+        """send_speech() with no target uses local_speaker by default."""
+        sm = make_manager()
+        with patch.object(sm, "_send_local_speech", return_value=True) as mock_local:
+            result = sm.send_speech("Hello ADA")
+        mock_local.assert_called_once_with("Hello ADA")
+        self.assertTrue(result)
+
+    def test_send_speech_explicit_local_speaker_target(self):
+        """send_speech(target_id='local_speaker') routes to local TTS."""
+        sm = make_manager()
+        with patch.object(sm, "_send_local_speech", return_value=True) as mock_local:
+            result = sm.send_speech("Test", target_id="local_speaker")
+        mock_local.assert_called_once_with("Test")
+        self.assertTrue(result)
+
+    def test_send_speech_routes_to_ha_for_ha_source(self):
+        """send_speech() calls _send_ha_speech for home_assistant source device."""
+        sm = make_manager()
+        sm.register_device({
+            "id": "ha_living_room",
+            "name": "Living Room",
+            "device_type": "speech_output",
+            "source": "home_assistant",
+            "privacy": "local_or_cloud_dependent",
+            "enabled": True,
+            "entity_id": "media_player.living_room",
+        })
+        with patch.object(sm, "_send_ha_speech", return_value=True) as mock_ha:
+            result = sm.send_speech("Hello", target_id="ha_living_room")
+        mock_ha.assert_called_once_with("Hello", "media_player.living_room")
+        self.assertTrue(result)
+
+    def test_send_speech_returns_false_for_unknown_target(self):
+        """send_speech() returns False when target_id is not in registry."""
+        sm = make_manager()
+        result = sm.send_speech("Hello", target_id="nonexistent_device")
+        self.assertFalse(result)
+
+    def test_send_speech_returns_false_for_disabled_target(self):
+        """send_speech() returns False when the target device is disabled."""
+        sm = make_manager()
+        sm.register_device({
+            "id": "disabled_speaker",
+            "name": "Off Speaker",
+            "device_type": "speech_output",
+            "source": "local",
+            "privacy": "local",
+            "enabled": False,
+            "entity_id": None,
+        })
+        with patch.object(sm, "_send_local_speech") as mock_local:
+            result = sm.send_speech("Hello", target_id="disabled_speaker")
+        mock_local.assert_not_called()
+        self.assertFalse(result)
+
+    def test_send_local_speech_calls_tts_queue_sentence(self):
+        """_send_local_speech() calls tts.queue_sentence() and returns True."""
+        import sys
+        sm = make_manager()
+        mock_tts_instance = MagicMock()
+        mock_tts_instance.queue_sentence.return_value = None
+        mock_tts_module = MagicMock()
+        mock_tts_module.tts = mock_tts_instance
+        with patch.dict(sys.modules, {"core.tts": mock_tts_module}):
+            result = sm._send_local_speech("Hello world")
+        mock_tts_instance.queue_sentence.assert_called_once_with("Hello world")
+        self.assertTrue(result)
+
+    def test_send_local_speech_returns_false_on_exception(self):
+        """_send_local_speech() returns False when tts.queue_sentence() raises."""
+        import sys
+        sm = make_manager()
+        mock_tts_instance = MagicMock()
+        mock_tts_instance.queue_sentence.side_effect = RuntimeError("TTS engine not ready")
+        mock_tts_module = MagicMock()
+        mock_tts_module.tts = mock_tts_instance
+        with patch.dict(sys.modules, {"core.tts": mock_tts_module}):
+            result = sm._send_local_speech("Hello")
+        self.assertFalse(result)
+
+    def test_send_ha_speech_calls_ha_manager(self):
+        """_send_ha_speech() calls ha_manager.speak_to_media_player()."""
+        sm = make_manager()
+        mock_ha = MagicMock()
+        mock_ha.speak_to_media_player.return_value = True
+        with patch("core.ha_control.ha_manager", mock_ha), \
+             patch("core.senses_manager.settings") as mock_settings:
+            mock_settings.get.return_value = "tts.piper"
+            result = sm._send_ha_speech("Hello HA", "media_player.living_room")
+        mock_ha.speak_to_media_player.assert_called_once_with(
+            "media_player.living_room", "Hello HA", tts_service="tts.piper"
+        )
+        self.assertTrue(result)
+
+    def test_send_ha_speech_returns_false_with_no_entity_id(self):
+        """_send_ha_speech() returns False when entity_id is None or empty."""
+        sm = make_manager()
+        self.assertFalse(sm._send_ha_speech("Hello", None))
+        self.assertFalse(sm._send_ha_speech("Hello", ""))
+
+
+class TestIntentRouting(unittest.TestCase):
+
+    def test_receive_external_intent_rejected_with_no_intent_inputs(self):
+        """receive_external_intent() rejects any source when no intent_input devices exist."""
+        sm = make_manager()
+        with patch("core.intent_bridge.intent_bridge") as mock_bridge:
+            sm.receive_external_intent("alexa", "Turn on the lights")
+        mock_bridge.route_intent.assert_not_called()
+
+    def test_receive_external_intent_rejected_from_unregistered_source(self):
+        """receive_external_intent() rejects source not in the registry."""
+        sm = make_manager()
+        sm.register_device({
+            "id": "google_home_input",
+            "name": "Google Home",
+            "device_type": "intent_input",
+            "source": "google_home",
+            "privacy": "cloud_dependent",
+            "enabled": True,
+            "entity_id": None,
+        })
+        with patch("core.intent_bridge.intent_bridge") as mock_bridge:
+            sm.receive_external_intent("alexa", "Set timer for 5 minutes")
+        mock_bridge.route_intent.assert_not_called()
+
+    def test_receive_external_intent_routes_registered_source(self):
+        """receive_external_intent() routes to intent_bridge for registered source."""
+        sm = make_manager()
+        sm.register_device({
+            "id": "alexa_intent",
+            "name": "Alexa",
+            "device_type": "intent_input",
+            "source": "alexa",
+            "privacy": "cloud_dependent",
+            "enabled": True,
+            "entity_id": None,
+        })
+        with patch("core.intent_bridge.intent_bridge") as mock_bridge:
+            sm.receive_external_intent("alexa", "Turn on the lights")
+        mock_bridge.route_intent.assert_called_once_with("Turn on the lights")
+
+    def test_receive_external_intent_rejected_when_device_disabled(self):
+        """receive_external_intent() rejects even if source is registered but disabled."""
+        sm = make_manager()
+        sm.register_device({
+            "id": "alexa_intent",
+            "name": "Alexa",
+            "device_type": "intent_input",
+            "source": "alexa",
+            "privacy": "cloud_dependent",
+            "enabled": False,
+            "entity_id": None,
+        })
+        with patch("core.intent_bridge.intent_bridge") as mock_bridge:
+            sm.receive_external_intent("alexa", "Turn on the lights")
+        mock_bridge.route_intent.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()
