@@ -32,7 +32,7 @@ class TestListCameras(unittest.TestCase):
         # Restore original module if it existed
         if original:
             sys.modules['device_enumerator'] = original
-        self.assertIsInstance(result, list)
+        self.assertEqual(result, [])
 
     def test_structure_with_mocked_camera(self):
         """Each entry has 'index' (int) and 'name' (str)."""

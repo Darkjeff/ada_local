@@ -39,8 +39,10 @@ def list_cameras(max_index: int = 5) -> list[dict[str, Any]]:
     cameras: list[dict[str, Any]] = []
     for i in range(max_index):
         cap = cv2.VideoCapture(i)
-        if cap.isOpened():
-            cameras.append({"index": i, "name": f"Camera {i}"})
+        try:
+            if cap.isOpened():
+                cameras.append({"index": i, "name": f"Camera {i}"})
+        finally:
             cap.release()
     return cameras
 
