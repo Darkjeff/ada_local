@@ -381,7 +381,19 @@ class SensesTab(ScrollArea):
 
     def _on_test_capture(self) -> None:
         """Open live webcam preview in a modal dialog."""
-        from gui.components.camera_preview import CameraLiveWidget
+        try:
+            from gui.components.camera_preview import CameraLiveWidget
+            import cv2 as _cv2_check  # noqa: F401
+        except ImportError:
+            from qfluentwidgets import InfoBar, InfoBarPosition
+            from PySide6.QtCore import Qt
+            InfoBar.warning(
+                title="Webcam unavailable",
+                content="opencv-python (cv2) is not installed.",
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=3000, parent=self.window()
+            )
+            return
 
         cam_idx = self.camera_card.current_index()
 
