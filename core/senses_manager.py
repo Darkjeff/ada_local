@@ -155,7 +155,7 @@ class SensesManager:
         """Dispatch to local TTS engine."""
         try:
             from core.tts import tts
-            tts.speak(text)
+            tts.queue_sentence(text)
             return True
         except Exception as e:
             print(f"[SensesManager] Local TTS failed: {e}")
@@ -189,8 +189,11 @@ class SensesManager:
         if source not in valid_sources:
             print(f"[SensesManager] Rejected intent from unregistered source: {source!r}")
             return
-        from core.intent_bridge import intent_bridge
-        intent_bridge.route_intent(intent_text)
+        try:
+            from core.intent_bridge import intent_bridge
+            intent_bridge.route_intent(intent_text)
+        except ImportError:
+            print(f"[SensesManager] IntentBridge not available yet — intent dropped: {intent_text!r}")
 
 
 # Global singleton
