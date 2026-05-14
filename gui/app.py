@@ -35,6 +35,7 @@ from gui.tabs.memory import MemoryTab
 from gui.components.system_monitor import SystemMonitor
 from gui.components.voice_indicator import VoiceIndicator
 from core.llm import preload_models
+from core.i18n import tr
 
 
 class ModelPreloaderThread(QThread):
@@ -207,7 +208,7 @@ class MainWindow(FluentWindow):
         self.dashboard_view = DashboardView()
         self.dashboard_view.setObjectName("dashboardInterface")
         self.dashboard_view.navigate_to.connect(self._navigate_to_tab)
-        self.addSubInterface(self.dashboard_view, FIF.LAYOUT, "Dashboard")
+        self.addSubInterface(self.dashboard_view, FIF.LAYOUT, tr("nav.dashboard"))
 
         # Lazy load other tabs
         self.chat_lazy = LazyTab(ChatTab, "chatInterface")
@@ -223,20 +224,20 @@ class MainWindow(FluentWindow):
         self.skills_lazy = LazyTab(SkillsTab, "skillsInterface")
         self.memory_lazy = LazyTab(MemoryTab, "memoryInterface")
 
-        self.addSubInterface(self.chat_lazy, FIF.CHAT, "Chat")
-        self.addSubInterface(self.planner_lazy, FIF.CALENDAR, "Planner")
-        self.addSubInterface(self.briefing_view, FIF.DATE_TIME, "Briefing")
-        self.addSubInterface(self.home_lazy, FIF.HOME, "Home Auto")
-        self.addSubInterface(self.cad_lazy, FIF.CODE, "CAD Agent")
-        self.addSubInterface(self.browser_lazy, FIF.GLOBE, "Web Agent")
-        self.addSubInterface(self.printers_lazy, FIF.TILES, "Printers")
-        self.addSubInterface(self.skills_lazy, FIF.BOOK_SHELF, "Skills")
-        self.addSubInterface(self.memory_lazy, FIF.HISTORY, "Memory")
+        self.addSubInterface(self.chat_lazy, FIF.CHAT, tr("nav.chat"))
+        self.addSubInterface(self.planner_lazy, FIF.CALENDAR, tr("nav.planner"))
+        self.addSubInterface(self.briefing_view, FIF.DATE_TIME, tr("nav.briefing"))
+        self.addSubInterface(self.home_lazy, FIF.HOME, tr("nav.home"))
+        self.addSubInterface(self.cad_lazy, FIF.CODE, tr("nav.cad"))
+        self.addSubInterface(self.browser_lazy, FIF.GLOBE, tr("nav.browser"))
+        self.addSubInterface(self.printers_lazy, FIF.TILES, tr("nav.printers"))
+        self.addSubInterface(self.skills_lazy, FIF.BOOK_SHELF, tr("nav.skills"))
+        self.addSubInterface(self.memory_lazy, FIF.HISTORY, tr("nav.memory"))
         
         # Settings at bottom
         self.settings_lazy = LazyTab(SettingsTab, "settingsInterface")
         self.addSubInterface(
-            self.settings_lazy, FIF.SETTING, "Settings",
+            self.settings_lazy, FIF.SETTING, tr("nav.settings"),
             NavigationItemPosition.BOTTOM
         )
         
