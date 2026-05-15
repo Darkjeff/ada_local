@@ -7,6 +7,7 @@ These dataclasses form the lingua franca between provider adapters
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Zone inference
@@ -57,8 +58,17 @@ def ha_domain_to_entity_type(domain: str) -> str:
 # Capability inference
 # ---------------------------------------------------------------------------
 
+_SENSOR_DC_TO_CAP: dict[str, str] = {
+    "temperature": "temperature",
+    "humidity":    "humidity",
+    "battery":     "battery",
+    "energy":      "energy",
+    "power":       "energy",
+}
+
+
 def infer_capabilities(
-    entity_type: str, attributes: dict, read_only: bool = False
+    entity_type: str, attributes: dict[str, Any], read_only: bool = False
 ) -> list[str]:
     """
     Return a list of capability strings for an entity given its type
@@ -90,15 +100,8 @@ def infer_capabilities(
 
     elif entity_type == "sensor":
         dc = attributes.get("device_class", "")
-        _DC_CAP = {
-            "temperature": "temperature",
-            "humidity":    "humidity",
-            "battery":     "battery",
-            "energy":      "energy",
-            "power":       "energy",
-        }
-        if dc in _DC_CAP:
-            caps.append(_DC_CAP[dc])
+        if dc in _SENSOR_DC_TO_CAP:
+            caps.append(_SENSOR_DC_TO_CAP[dc])
 
     return caps
 
@@ -132,7 +135,7 @@ class Entity:
     type: str                           # "light" | "camera" | "sensor" | etc.
     zone: str                           # inferred from name via infer_zone()
     state: str                          # "on" | "off" | "playing" | numeric string, …
-    attributes: dict = field(default_factory=dict)
+    attributes: dict[str, Any] = field(default_factory=dict)
     capabilities: list[str] = field(default_factory=list)
     read_only: bool = False
     available: bool = True
