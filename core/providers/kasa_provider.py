@@ -42,8 +42,10 @@ class KasaProvider(BaseProvider):
             from core.kasa_control import kasa_manager
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            devices_dict = loop.run_until_complete(kasa_manager.discover_devices())
-            loop.close()
+            try:
+                devices_dict = loop.run_until_complete(kasa_manager.discover_devices())
+            finally:
+                loop.close()
         except Exception as e:
             print(f"[KasaProvider] fetch_entities failed: {e}")
             return []
@@ -87,8 +89,10 @@ class KasaProvider(BaseProvider):
             from core.kasa_control import kasa_manager
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(kasa_manager.discover_devices())
-            loop.close()
+            try:
+                result = loop.run_until_complete(kasa_manager.discover_devices())
+            finally:
+                loop.close()
             ok = bool(result)
             self._provider.status = "connected" if ok else "disconnected"
             return ok
@@ -102,11 +106,13 @@ class KasaProvider(BaseProvider):
             from core.kasa_control import kasa_manager
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            if on:
-                result = loop.run_until_complete(kasa_manager.turn_on(provider_entity_id))
-            else:
-                result = loop.run_until_complete(kasa_manager.turn_off(provider_entity_id))
-            loop.close()
+            try:
+                if on:
+                    result = loop.run_until_complete(kasa_manager.turn_on(provider_entity_id))
+                else:
+                    result = loop.run_until_complete(kasa_manager.turn_off(provider_entity_id))
+            finally:
+                loop.close()
             return result
         except Exception as e:
             print(f"[KasaProvider] toggle({provider_entity_id}, {on}) failed: {e}")
@@ -117,10 +123,12 @@ class KasaProvider(BaseProvider):
             from core.kasa_control import kasa_manager
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(
-                kasa_manager.set_brightness(provider_entity_id, value)
-            )
-            loop.close()
+            try:
+                result = loop.run_until_complete(
+                    kasa_manager.set_brightness(provider_entity_id, value)
+                )
+            finally:
+                loop.close()
             return result
         except Exception as e:
             print(f"[KasaProvider] set_brightness({provider_entity_id}) failed: {e}")
