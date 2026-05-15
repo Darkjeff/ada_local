@@ -64,6 +64,13 @@ _BTN_STYLE = """
 """
 
 
+def _label(text: str, style: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet(style)
+    lbl.setWordWrap(True)
+    return lbl
+
+
 def _make_icon_box(icon) -> QFrame:
     box = QFrame()
     box.setFixedSize(40, 40)
@@ -531,12 +538,3 @@ def entity_card_for(
     return cls(entity, service, parent)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _label(text: str, style: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setStyleSheet(style)
-    lbl.setWordWrap(True)
-    return lbl
