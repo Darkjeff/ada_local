@@ -15,9 +15,6 @@ from typing import Optional
 
 from core.entity_models import Entity, Provider
 
-_lock = threading.Lock()
-
-
 class UnifiedEntityService:
     """
     Orchestrates all registered provider adapters and exposes a unified
@@ -28,8 +25,10 @@ class UnifiedEntityService:
     """
 
     def __init__(self):
+        self._lock = threading.Lock()
         self._entities: list[Entity] = []
         self._providers: dict = {}
+        self._refreshing = False
         self._register_defaults()
 
     def _register_defaults(self):
@@ -57,7 +56,8 @@ class UnifiedEntityService:
         Return the cached entity list, optionally refreshing from all providers first.
         Callers in background threads should pass force_refresh=True.
         """
-        if force_refresh or not self._entities:
+        should_refresh = force_refresh or not self._entities
+        if should_refresh and not getattr(self, "_refreshing", False):
             self.refresh_providers()
         return list(self._entities)
 
@@ -77,7 +77,9 @@ class UnifiedEntityService:
         Fetch entities from all enabled providers, merge results, deduplicate.
         Thread-safe. Individual provider failures are caught and logged.
         """
-        with _lock:
+        self._refreshing = True
+        lock = getattr(self, "_lock", threading.Lock())
+        with lock:
             new_entities: list[Entity] = []
             seen_ids: set[str] = set()
 
@@ -94,6 +96,7 @@ class UnifiedEntityService:
                     print(f"[UnifiedEntityService] Provider '{provider_id}' raised: {ex}")
 
             self._entities = new_entities
+        self._refreshing = False
 
     # ------------------------------------------------------------------ #
     # Actions                                                              #
@@ -114,6 +117,8 @@ class UnifiedEntityService:
         try:
             result = provider.toggle(entity.provider_entity_id, target_on)
             if result:
+                # Optimistic update — mutates the cached Entity in-place so
+                # callers holding a reference see the new state immediately.
                 entity.state = "on" if target_on else "off"
             return result
         except Exception as e:
@@ -163,7 +168,11 @@ class UnifiedEntityService:
         provider = self._providers.get(provider_id)
         if provider is None:
             return False
-        return provider.test_connection()
+        try:
+            return provider.test_connection()
+        except Exception as e:
+            print(f"[UnifiedEntityService] test_provider_connection({provider_id}) failed: {e}")
+            return False
 
 
 # Global singleton
