@@ -425,6 +425,29 @@ class SettingsTab(ScrollArea):
         self.connection_group.addSettingCard(self.ollama_url_card)
         self.expandLayout.addWidget(self.connection_group)
 
+        # ── Kasa ─────────────────────────────────────────────────────────
+        self.kasa_group = SettingCardGroup(tr("settings.kasa"), self.scrollWidget)
+
+        self.kasa_enabled_card = SwitchCard(
+            FIF.WIFI,
+            tr("settings.kasa_enabled"),
+            tr("settings.kasa_enabled_desc"),
+            "kasa.enabled",
+            self.kasa_group
+        )
+        self.kasa_group.addSettingCard(self.kasa_enabled_card)
+
+        self.kasa_test_card = PushSettingCard(
+            tr("settings.kasa_test_btn"),
+            FIF.SEARCH,
+            tr("settings.kasa_test"),
+            tr("settings.kasa_test_desc"),
+            self.kasa_group
+        )
+        self.kasa_test_card.clicked.connect(self._on_kasa_scan)
+        self.kasa_group.addSettingCard(self.kasa_test_card)
+        self.expandLayout.addWidget(self.kasa_group)
+
         # ── Home Assistant ────────────────────────────────────────────
         self.ha_group = SettingCardGroup(tr("settings.ha"), self.scrollWidget)
 
@@ -629,6 +652,7 @@ class SettingsTab(ScrollArea):
         self.personal_group.titleLabel.setText(tr("settings.personalization"))
         self.ai_group.titleLabel.setText(tr("settings.ai_models"))
         self.connection_group.titleLabel.setText(tr("settings.connection"))
+        self.kasa_group.titleLabel.setText(tr("settings.kasa"))
         self.ha_group.titleLabel.setText(tr("settings.ha"))
         self.voice_group.titleLabel.setText(tr("settings.voice"))
         self.telegram_group.titleLabel.setText(tr("settings.telegram"))
@@ -654,6 +678,12 @@ class SettingsTab(ScrollArea):
         self.ollama_url_card.titleLabel.setText(tr("settings.ollama_url"))
         self.ollama_url_card.contentLabel.setText(tr("settings.ollama_url_desc"))
         self.ollama_url_card.test_btn.setText(tr("settings.test_btn"))
+
+        self.kasa_enabled_card.titleLabel.setText(tr("settings.kasa_enabled"))
+        self.kasa_enabled_card.contentLabel.setText(tr("settings.kasa_enabled_desc"))
+        self.kasa_test_card.titleLabel.setText(tr("settings.kasa_test"))
+        self.kasa_test_card.contentLabel.setText(tr("settings.kasa_test_desc"))
+        self.kasa_test_card.button.setText(tr("settings.kasa_test_btn"))
 
         self.ha_enabled_card.titleLabel.setText(tr("settings.ha_enabled"))
         self.ha_enabled_card.contentLabel.setText(tr("settings.ha_enabled_desc"))
@@ -777,6 +807,41 @@ class SettingsTab(ScrollArea):
             orient=Qt.Horizontal, isClosable=True,
             position=InfoBarPosition.TOP, duration=3000, parent=self.window()
         )
+
+    def _on_kasa_scan(self):
+        self.kasa_test_card.button.setEnabled(False)
+        self.kasa_test_card.button.setText(tr("settings.kasa_scanning"))
+
+        import threading
+
+        def _run():
+            from core.providers.kasa_provider import kasa_provider
+            result = kasa_provider.fetch_entities()
+            self._kasa_scan_count = len(result)
+            from PySide6.QtCore import QMetaObject, Qt
+            QMetaObject.invokeMethod(self, "_on_kasa_scan_done", Qt.QueuedConnection)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    @Slot()
+    def _on_kasa_scan_done(self):
+        self.kasa_test_card.button.setEnabled(True)
+        self.kasa_test_card.button.setText(tr("settings.kasa_test_btn"))
+        count = getattr(self, "_kasa_scan_count", 0)
+        if count > 0:
+            InfoBar.success(
+                title=tr("settings.kasa"),
+                content=tr("settings.kasa_found", count=count),
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=4000, parent=self.window()
+            )
+        else:
+            InfoBar.warning(
+                title=tr("settings.kasa"),
+                content=tr("settings.kasa_none"),
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=4000, parent=self.window()
+            )
 
     def _on_telegram_toggled(self, enabled: bool):
         from core.telegram_adapter import telegram_adapter
