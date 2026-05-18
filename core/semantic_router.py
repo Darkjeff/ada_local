@@ -198,7 +198,7 @@ class EmbeddingRouter:
         sr: dict = {}
         base_url = "http://localhost:11434"
         try:
-            from core.settings_store import app_settings
+            from core.settings_store import settings as app_settings
             sr = app_settings.get("semantic_router", {})
             base_url = app_settings.get("ollama_url", base_url)
         except Exception:
