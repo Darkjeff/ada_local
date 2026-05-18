@@ -1,9 +1,10 @@
 """
-8 tests for core/n8n_executor.py
+9 tests for core/n8n_executor.py
 
 N8NExecutor.call(action, params) → {success, message, data}
 Never raises. Falls back to FunctionExecutor on connection failure.
 """
+import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -22,6 +23,7 @@ def _make_executor(url="http://localhost:5678", timeout=10.0,
     """Return a fresh N8NExecutor whose _load_settings is overridden."""
     ex = N8NExecutor.__new__(N8NExecutor)
     ex._down_since = 0.0
+    ex._lock = threading.Lock()
     ex._load_settings = lambda: (f"{url}/webhook", timeout, fallback, cooldown)
     return ex
 
@@ -123,17 +125,34 @@ class TestN8NExecutorCall(unittest.TestCase):
         self.assertIn("indisponible", result["message"].lower())
 
     def test_404_fallback(self):
-        """HTTP 404 → mark down and call fallback."""
+        """HTTP 404 (client error) → error dict returned, no cooldown, no fallback."""
         ex = _make_executor(fallback=True)
-        fallback_result = {"success": False, "message": "404 fallback", "data": None}
 
         with patch("requests.post",
-                   side_effect=_http_error(404)) as _:
+                   side_effect=_http_error(404)):
+            with patch("core.n8n_executor.N8NExecutor._fallback") as mock_fallback:
+                with patch.object(ex, "_mark_down") as mock_mark_down:
+                    result = ex.call("control-light", {"action": "off", "device_name": "all"})
+
+        mock_fallback.assert_not_called()
+        mock_mark_down.assert_not_called()
+        self.assertFalse(result["success"])
+        self.assertIn("404", result["message"])
+
+    def test_5xx_fallback(self):
+        """HTTP 503 (server error) → marks down, calls fallback."""
+        ex = _make_executor(fallback=True)
+        fallback_result = {"success": False, "message": "503 fallback", "data": None}
+
+        with patch("requests.post", side_effect=_http_error(503)):
             with patch("core.n8n_executor.N8NExecutor._fallback",
                        return_value=fallback_result) as mock_fallback:
                 result = ex.call("control-light", {"action": "off", "device_name": "all"})
 
         mock_fallback.assert_called_once()
+        # Executor should now be in cooldown
+        _, _, _, cooldown_s = ex._load_settings()
+        self.assertTrue(ex._is_in_cooldown(cooldown_s))
 
     def test_normalizes_response(self):
         """Non-standard n8n response is normalised to {success, message, data}."""

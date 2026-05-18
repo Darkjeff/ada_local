@@ -6,6 +6,7 @@ Never raises. Falls back to FunctionExecutor if n8n is unavailable.
 """
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -41,6 +42,7 @@ class N8NExecutor:
 
     def __init__(self) -> None:
         self._down_since: float = 0.0  # monotonic timestamp of last failure; 0 = healthy
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Settings
@@ -65,9 +67,11 @@ class N8NExecutor:
         return (time.monotonic() - self._down_since) < cooldown_s
 
     def _mark_down(self) -> None:
+        """Must be called under self._lock."""
         self._down_since = time.monotonic()
 
     def _mark_up(self) -> None:
+        """Must be called under self._lock."""
         self._down_since = 0.0
 
     # ------------------------------------------------------------------
@@ -91,10 +95,12 @@ class N8NExecutor:
     @staticmethod
     def _normalize(data: Any) -> dict:
         """Ensure response has the canonical {success, message, data} shape."""
-        if isinstance(data, dict) and "success" in data and "message" in data:
+        if data is None:
+            return {"success": False, "message": "Empty response from n8n", "data": None}
+        if isinstance(data, dict) and "success" in data:
             return {
                 "success": bool(data["success"]),
-                "message": str(data["message"]),
+                "message": str(data.get("message", data.get("error", str(data)))),
                 "data":    data.get("data"),
             }
         # Non-standard response — wrap it
@@ -115,8 +121,11 @@ class N8NExecutor:
         """
         base_url, timeout_s, fallback_enabled, cooldown_s = self._load_settings()
 
-        # --- Cooldown active: skip HTTP, go straight to fallback ---
-        if self._is_in_cooldown(cooldown_s):
+        # Check cooldown under lock
+        with self._lock:
+            in_cooldown = self._is_in_cooldown(cooldown_s)
+
+        if in_cooldown:
             logger.debug("[N8N] Cooldown actif, skip HTTP (action=%s)", action)
             if fallback_enabled:
                 return self._fallback(action, params)
@@ -124,7 +133,7 @@ class N8NExecutor:
                     "message": "n8n indisponible (cooldown actif)",
                     "data": None}
 
-        # --- Attempt HTTP call ---
+        # Attempt HTTP call (outside lock — slow operation)
         try:
             resp = requests.post(
                 f"{base_url}/{action}",
@@ -132,12 +141,14 @@ class N8NExecutor:
                 timeout=timeout_s,
             )
             resp.raise_for_status()
-            self._mark_up()
+            with self._lock:
+                self._mark_up()
             return self._normalize(resp.json())
 
         except (requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout):
-            self._mark_down()
+            with self._lock:
+                self._mark_down()
             logger.warning("[N8N] Indisponible, fallback FunctionExecutor (action=%s)", action)
             if fallback_enabled:
                 return self._fallback(action, params)
@@ -146,9 +157,12 @@ class N8NExecutor:
         except requests.exceptions.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else 0
             logger.error("[N8N] HTTP %d pour action=%s", status, action)
-            self._mark_down()
-            if fallback_enabled:
-                return self._fallback(action, params)
+            # Only 5xx server errors indicate n8n is down — 4xx are client-side errors
+            if status >= 500:
+                with self._lock:
+                    self._mark_down()
+                if fallback_enabled:
+                    return self._fallback(action, params)
             return {"success": False, "message": f"n8n HTTP {status}", "data": None}
 
         except Exception as exc:
