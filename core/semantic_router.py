@@ -129,11 +129,14 @@ _ROUTES: dict[str, list[str]] = {
     ],
 }
 
+# Note: "youtube" is not in _ROUTES — it is detected by URL regex in route() and
+# _KeywordFallback.get_route() before any scoring occurs.
+
 # ---------------------------------------------------------------------------
 # _KeywordFallback — original keyword-overlap logic, unchanged
 # ---------------------------------------------------------------------------
 
-_THRESHOLD = 1  # minimum overlapping tokens to count a hit
+_KEYWORD_OVERLAP_THRESHOLD = 1  # minimum overlapping tokens to count a hit
 
 
 def _tokenize(text: str) -> frozenset:
@@ -163,7 +166,7 @@ class _KeywordFallback:
         scores: dict[str, float] = {r: 0.0 for r in VALID_ROUTES}
         for route, utt_tokens in self._index:
             overlap = len(tokens & utt_tokens)
-            if overlap >= _THRESHOLD:
+            if overlap >= _KEYWORD_OVERLAP_THRESHOLD:
                 scores[route] += overlap / max(len(utt_tokens), 1)
         best_route = max(scores, key=lambda r: scores[r])
         if scores[best_route] < 0.3:
@@ -184,7 +187,7 @@ class EmbeddingRouter:
     """
 
     def __init__(self) -> None:
-        self._cache: dict[str, np.ndarray] = {}   # route → (N, 768) float32 matrix
+        self._cache: dict[str, np.ndarray] = {}   # route → (N, D) float32 matrix, D = embedding dimension
         self._lock = threading.Lock()
         self._last_retry: float = 0.0              # epoch time of last failed init attempt
         self._keyword = _KeywordFallback()
@@ -192,25 +195,26 @@ class EmbeddingRouter:
 
     def _load_settings(self) -> None:
         """Read configuration from settings_store (with safe defaults)."""
+        sr: dict = {}
+        base_url = "http://localhost:11434"
         try:
             from core.settings_store import app_settings
             sr = app_settings.get("semantic_router", {})
+            base_url = app_settings.get("ollama_url", base_url)
         except Exception:
-            sr = {}
+            try:
+                from config import OLLAMA_URL
+                base = OLLAMA_URL.rstrip("/")
+                if base.endswith("/api"):
+                    base = base[:-4]
+                base_url = base
+            except Exception:
+                pass
         self._model: str = sr.get("embedding_model", "nomic-embed-text")
         self._threshold: float = float(sr.get("confidence_threshold", 0.45))
         self._timeout: float = float(sr.get("embed_timeout_s", 5.0))
         self._cooldown: float = float(sr.get("retry_cooldown_s", 30.0))
-        try:
-            from core.settings_store import app_settings
-            base = app_settings.get("ollama_url", "http://localhost:11434")
-        except Exception:
-            from config import OLLAMA_URL
-            # config.OLLAMA_URL is "http://localhost:11434/api" — strip the /api suffix
-            base = OLLAMA_URL.rstrip("/")
-            if base.endswith("/api"):
-                base = base[:-4]
-        self._embed_url: str = base.rstrip("/") + "/api/embeddings"
+        self._embed_url: str = base_url.rstrip("/") + "/api/embeddings"
 
     def _embed(self, text: str) -> Optional[np.ndarray]:
         """Return a float32 vector for *text*, or None on error."""
@@ -249,7 +253,8 @@ class EmbeddingRouter:
                     if vec is None:
                         # Ollama unavailable — abort, leave cache empty
                         logger.warning(
-                            "[SemanticRouter] Ollama indisponible, mode keyword actif"
+                            "[SemanticRouter] Ollama indisponible (failed on route=%s), mode keyword actif",
+                            route,
                         )
                         return
                     route_vecs[route].append(vec)
@@ -275,11 +280,16 @@ class EmbeddingRouter:
         normed = matrix / norms
         return float(np.mean(normed @ q))
 
-    def _best_route(self, query_vec: np.ndarray) -> tuple[str, float]:
+    def _get_cache_snapshot(self) -> dict:
+        """Return the current cache under the lock (empty dict if not built)."""
+        with self._lock:
+            return dict(self._cache)
+
+    def _best_route(self, query_vec: np.ndarray, cache: dict) -> tuple[str, float]:
         """Return (route, score) for the highest-scoring route."""
         best_route = "qwen_basic"
         best_score = -1.0
-        for route, matrix in self._cache.items():
+        for route, matrix in cache.items():
             score = self._cosine_mean(query_vec, matrix)
             if score > best_score:
                 best_score = score
@@ -294,27 +304,20 @@ class EmbeddingRouter:
         """
         if not prompt or not prompt.strip():
             return "qwen_basic"
-
-        # YouTube URL detection — highest priority
         if re.search(r"(?:youtube\.com/watch|youtu\.be/)", prompt):
             return "youtube"
-
         try:
             self._ensure_cache()
-
-            if not self._cache:
-                # Ollama was down during cache build — use keyword fallback
+            cache = self._get_cache_snapshot()
+            if not cache:
                 return self._keyword.get_route(prompt)
-
             query_vec = self._embed(prompt)
             if query_vec is None:
                 return self._keyword.get_route(prompt)
-
-            best_route, best_score = self._best_route(query_vec)
+            best_route, best_score = self._best_route(query_vec, cache)
             if best_score < self._threshold:
                 return "qwen_basic"
             return best_route
-
         except Exception as exc:
             logger.error("[SemanticRouter] unexpected error: %s", exc, exc_info=True)
             return "qwen_basic"
@@ -341,7 +344,9 @@ def warmup() -> None:
     when Ollama is guaranteed to be available).
     """
     _router._ensure_cache()
-    if _router._cache:
-        print("[SemanticRouter] Ready (embedding router, nomic-embed-text).")
+    with _router._lock:
+        ready = bool(_router._cache)
+    if ready:
+        logger.info("[SemanticRouter] Ready (embedding router, nomic-embed-text).")
     else:
-        print("[SemanticRouter] Ready (keyword fallback — Ollama unavailable).")
+        logger.warning("[SemanticRouter] Ready (keyword fallback — Ollama unavailable).")
