@@ -79,7 +79,7 @@ DEFAULT_SETTINGS = {
         "timeout_s": 10.0,
         "fallback_enabled": True,
         "cooldown_s": 30.0,
-    }
+    },
 }
 
 
