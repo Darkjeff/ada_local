@@ -1,28 +1,43 @@
 """
-Semantic Router — keyword-overlap pre-classifier (no ML, no loky, no semaphores).
+Semantic Router — embedding-based classifier with keyword fallback.
 
-Routes user prompts in <1ms using word-overlap scoring against predefined
-utterances. Same interface as the previous ML-based router, drop-in replacement.
+Routes user prompts to one of 7 agents using cosine similarity against
+Ollama-embedded utterances (nomic-embed-text). Falls back to the original
+keyword-overlap scorer when Ollama is unavailable.
 
 Routes:
-  qwen_basic      → simple chat, greetings, quick facts  → Qwen (no thinking)
-  qwen_thinking   → complex reasoning, coding, analysis  → Qwen (thinking)
-  function_gemma  → actions (lights, timer, calendar...) → Function Gemma
-  cad_generation  → 3D model creation / iteration        → CAD Agent
-  print_control   → printer status / print job control   → Printer Agent
-  vision          → webcam / image analysis              → Vision pipeline
+  qwen_basic      → simple chat, greetings, quick facts
+  qwen_thinking   → complex reasoning, coding, analysis
+  function_gemma  → actions (lights, timer, calendar...)
+  cad_generation  → 3D model creation / iteration
+  print_control   → printer status / print job control
+  vision          → webcam / image analysis
+  youtube         → YouTube transcription / summary
 """
 
+import logging
 import re
+import threading
+import time
+from typing import Optional
+
+import numpy as np
+import requests
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Public contract
+# ---------------------------------------------------------------------------
 
 VALID_ROUTES = {
     "qwen_basic", "qwen_thinking", "function_gemma",
     "cad_generation", "print_control", "vision", "youtube",
 }
 
-# ── Utterances per route ───────────────────────────────────────────────────────
-# Listed from most-specific to least-specific within each route.
-# The scorer sums word-overlap hits; highest score wins.
+# ---------------------------------------------------------------------------
+# Utterances per route
+# ---------------------------------------------------------------------------
 
 _ROUTES: dict[str, list[str]] = {
     "vision": [
@@ -78,7 +93,6 @@ _ROUTES: dict[str, list[str]] = {
         "quel temps fait-il", "weather in", "météo à",
         "qu'est-ce que j'ai aujourd'hui", "what tasks do I have",
         "what's on my schedule", "rappelle-moi",
-        # shell_exec
         "exécute", "lance le script", "shell", "commande powershell",
         "liste les fichiers", "quelle version", "ping",
         "espace disque", "espace disponible", "disk space", "df",
@@ -115,62 +129,219 @@ _ROUTES: dict[str, list[str]] = {
     ],
 }
 
-# Pre-tokenize utterances: list of (route, frozenset_of_tokens)
-_TOKEN_INDEX: list[tuple[str, frozenset]] = []
+# ---------------------------------------------------------------------------
+# _KeywordFallback — original keyword-overlap logic, unchanged
+# ---------------------------------------------------------------------------
+
+_THRESHOLD = 1  # minimum overlapping tokens to count a hit
+
 
 def _tokenize(text: str) -> frozenset:
-    """Lowercase, split on whitespace and apostrophes, drop short words."""
+    """Lowercase, split on non-word chars, drop tokens shorter than 2 chars."""
     text = text.lower()
-    text = re.sub(r"[^\w\s]", " ", text)  # apostrophes → space ("l'espace" → "l espace")
+    text = re.sub(r"[^\w\s]", " ", text)
     return frozenset(w for w in text.split() if len(w) > 1)
 
-def _build_index():
-    global _TOKEN_INDEX
-    _TOKEN_INDEX = []
-    for route, utterances in _ROUTES.items():
-        for utt in utterances:
-            _TOKEN_INDEX.append((route, _tokenize(utt)))
 
-_build_index()
+class _KeywordFallback:
+    """Keyword-overlap scorer. Zero dependencies, <1 ms."""
 
-# ── Scorer ─────────────────────────────────────────────────────────────────────
+    def __init__(self) -> None:
+        self._index: list[tuple[str, frozenset]] = []
+        for route, utterances in _ROUTES.items():
+            for utt in utterances:
+                self._index.append((route, _tokenize(utt)))
 
-_THRESHOLD = 1  # Minimum overlapping tokens to count a hit
+    def get_route(self, prompt: str) -> str:
+        if not prompt or not prompt.strip():
+            return "qwen_basic"
+        if re.search(r"(?:youtube\.com/watch|youtu\.be/)", prompt):
+            return "youtube"
+        tokens = _tokenize(prompt)
+        if not tokens:
+            return "qwen_basic"
+        scores: dict[str, float] = {r: 0.0 for r in VALID_ROUTES}
+        for route, utt_tokens in self._index:
+            overlap = len(tokens & utt_tokens)
+            if overlap >= _THRESHOLD:
+                scores[route] += overlap / max(len(utt_tokens), 1)
+        best_route = max(scores, key=lambda r: scores[r])
+        if scores[best_route] < 0.3:
+            return "function_gemma"
+        return best_route
+
+
+# ---------------------------------------------------------------------------
+# EmbeddingRouter — Ollama-based semantic router
+# ---------------------------------------------------------------------------
+
+class EmbeddingRouter:
+    """
+    Routes prompts using cosine similarity against Ollama-embedded utterances.
+
+    Lazy init: the embedding cache is built on the first call to route().
+    Falls back to _KeywordFallback on any Ollama error.
+    """
+
+    def __init__(self) -> None:
+        self._cache: dict[str, np.ndarray] = {}   # route → (N, 768) float32 matrix
+        self._lock = threading.Lock()
+        self._last_retry: float = 0.0              # epoch time of last failed init attempt
+        self._keyword = _KeywordFallback()
+        self._load_settings()
+
+    def _load_settings(self) -> None:
+        """Read configuration from settings_store (with safe defaults)."""
+        try:
+            from core.settings_store import app_settings
+            sr = app_settings.get("semantic_router", {})
+        except Exception:
+            sr = {}
+        self._model: str = sr.get("embedding_model", "nomic-embed-text")
+        self._threshold: float = float(sr.get("confidence_threshold", 0.45))
+        self._timeout: float = float(sr.get("embed_timeout_s", 5.0))
+        self._cooldown: float = float(sr.get("retry_cooldown_s", 30.0))
+        try:
+            from core.settings_store import app_settings
+            base = app_settings.get("ollama_url", "http://localhost:11434")
+        except Exception:
+            from config import OLLAMA_URL
+            # config.OLLAMA_URL is "http://localhost:11434/api" — strip the /api suffix
+            base = OLLAMA_URL.rstrip("/")
+            if base.endswith("/api"):
+                base = base[:-4]
+        self._embed_url: str = base.rstrip("/") + "/api/embeddings"
+
+    def _embed(self, text: str) -> Optional[np.ndarray]:
+        """Return a float32 vector for *text*, or None on error."""
+        try:
+            resp = requests.post(
+                self._embed_url,
+                json={"model": self._model, "prompt": text},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            vec = np.array(resp.json()["embedding"], dtype=np.float32)
+            return vec
+        except Exception as exc:
+            logger.warning("[SemanticRouter] embed failed: %s", exc)
+            return None
+
+    def _ensure_cache(self) -> None:
+        """
+        Build the per-route utterance matrices (once, thread-safe).
+        If Ollama is down, leaves cache empty and records the attempt time
+        so callers can respect the retry cooldown.
+        """
+        with self._lock:
+            if self._cache:
+                return  # already built
+            now = time.monotonic()
+            if now - self._last_retry < self._cooldown and self._last_retry > 0:
+                return  # cooldown not elapsed
+            self._last_retry = now
+
+            route_vecs: dict[str, list[np.ndarray]] = {r: [] for r in _ROUTES}
+            total = 0
+            for route, utterances in _ROUTES.items():
+                for utt in utterances:
+                    vec = self._embed(utt)
+                    if vec is None:
+                        # Ollama unavailable — abort, leave cache empty
+                        logger.warning(
+                            "[SemanticRouter] Ollama indisponible, mode keyword actif"
+                        )
+                        return
+                    route_vecs[route].append(vec)
+                    total += 1
+
+            # Store as (N, D) matrices for fast batch cosine computation
+            self._cache = {
+                route: np.stack(vecs)
+                for route, vecs in route_vecs.items()
+                if vecs
+            }
+            logger.info(
+                "[SemanticRouter] cache prêt (%d routes, %d utterances)",
+                len(self._cache),
+                total,
+            )
+
+    @staticmethod
+    def _cosine_mean(query_vec: np.ndarray, matrix: np.ndarray) -> float:
+        """Mean cosine similarity between *query_vec* and each row of *matrix*."""
+        q = query_vec / (np.linalg.norm(query_vec) + 1e-9)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9
+        normed = matrix / norms
+        return float(np.mean(normed @ q))
+
+    def _best_route(self, query_vec: np.ndarray) -> tuple[str, float]:
+        """Return (route, score) for the highest-scoring route."""
+        best_route = "qwen_basic"
+        best_score = -1.0
+        for route, matrix in self._cache.items():
+            score = self._cosine_mean(query_vec, matrix)
+            if score > best_score:
+                best_score = score
+                best_route = route
+        return best_route, best_score
+
+    def route(self, prompt: str) -> str:
+        """
+        Return the best route for *prompt*.
+        Falls back to keyword router if Ollama is unavailable.
+        Never raises.
+        """
+        if not prompt or not prompt.strip():
+            return "qwen_basic"
+
+        # YouTube URL detection — highest priority
+        if re.search(r"(?:youtube\.com/watch|youtu\.be/)", prompt):
+            return "youtube"
+
+        try:
+            self._ensure_cache()
+
+            if not self._cache:
+                # Ollama was down during cache build — use keyword fallback
+                return self._keyword.get_route(prompt)
+
+            query_vec = self._embed(prompt)
+            if query_vec is None:
+                return self._keyword.get_route(prompt)
+
+            best_route, best_score = self._best_route(query_vec)
+            if best_score < self._threshold:
+                return "qwen_basic"
+            return best_route
+
+        except Exception as exc:
+            logger.error("[SemanticRouter] unexpected error: %s", exc, exc_info=True)
+            return "qwen_basic"
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton + public interface
+# ---------------------------------------------------------------------------
+
+_router = EmbeddingRouter()
+
 
 def get_route(prompt: str) -> str:
     """
-    Route a prompt. Returns one of the VALID_ROUTES strings.
-    Falls back to 'function_gemma' when no route scores above threshold.
+    Route a prompt to one of the VALID_ROUTES.
+    Public interface — identical signature to the previous keyword router.
     """
-    if not prompt or not prompt.strip():
-        return "qwen_basic"
-
-    # YouTube URL detection — highest priority, unambiguous
-    import re as _re
-    if _re.search(r"(?:youtube\.com/watch|youtu\.be/)", prompt):
-        return "youtube"
-
-    tokens = _tokenize(prompt)
-    if not tokens:
-        return "qwen_basic"
-
-    scores: dict[str, float] = {r: 0.0 for r in VALID_ROUTES}
-
-    for route, utt_tokens in _TOKEN_INDEX:
-        overlap = len(tokens & utt_tokens)
-        if overlap >= _THRESHOLD:
-            # Normalise by utterance length to prefer specific matches
-            scores[route] += overlap / max(len(utt_tokens), 1)
-
-    best_route = max(scores, key=lambda r: scores[r])
-    best_score = scores[best_route]
-
-    if best_score < 0.3:
-        return "function_gemma"
-
-    return best_route
+    return _router.route(prompt)
 
 
-def warmup():
-    """No-op — keyword router needs no warm-up."""
-    print("[SemanticRouter] Ready (keyword router, no ML).")
+def warmup() -> None:
+    """
+    Trigger cache initialisation eagerly (optional — call at ADA startup
+    when Ollama is guaranteed to be available).
+    """
+    _router._ensure_cache()
+    if _router._cache:
+        print("[SemanticRouter] Ready (embedding router, nomic-embed-text).")
+    else:
+        print("[SemanticRouter] Ready (keyword fallback — Ollama unavailable).")
