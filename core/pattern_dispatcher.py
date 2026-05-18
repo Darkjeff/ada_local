@@ -7,7 +7,10 @@ Returns None when no rule matches; the caller falls back to LLM intent parsing.
 
 import logging
 import re
+import sys
 from typing import Optional
+
+_IS_LINUX = sys.platform != "win32"
 
 logger = logging.getLogger(__name__)
 
@@ -91,17 +94,32 @@ _PATTERNS: list[tuple[str, object]] = [
     # Shell — disk
     (
         r"\b(espace|disque|disk|space|df|stockage|libre)\b",
-        lambda m, t: ("shell-exec", {"command": "df -h"}),
+        lambda m, t: ("shell-exec", {
+            "command": "df -h" if _IS_LINUX else
+            "Get-PSDrive | Where-Object {$_.Used -ne $null} | "
+            "Select-Object Name,"
+            "@{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}},"
+            "@{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}"
+        }),
     ),
     # Shell — RAM
     (
         r"\b(ram|mémoire|memory)\b",
-        lambda m, t: ("shell-exec", {"command": "free -h"}),
+        lambda m, t: ("shell-exec", {
+            "command": "free -h" if _IS_LINUX else
+            "Get-CimInstance Win32_OperatingSystem | "
+            "Select-Object @{N='Total(GB)';E={[math]::Round($_.TotalVisibleMemorySize/1MB,1)}},"
+            "@{N='Free(GB)';E={[math]::Round($_.FreePhysicalMemory/1MB,1)}}"
+        }),
     ),
     # Shell — CPU
     (
         r"\b(cpu|processeur|charge\s+système|load)\b",
-        lambda m, t: ("shell-exec", {"command": "top -bn1 | head -15"}),
+        lambda m, t: ("shell-exec", {
+            "command": "top -bn1 | head -15" if _IS_LINUX else
+            "Get-Process | Sort-Object CPU -Descending | "
+            "Select-Object -First 10 Name,CPU,WorkingSet"
+        }),
     ),
     # Weather
     (

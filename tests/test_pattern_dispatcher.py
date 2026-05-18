@@ -1,10 +1,13 @@
 """
-17 tests for core/pattern_dispatcher.py
+18 tests for core/pattern_dispatcher.py
 
 PatternDispatcher.match(prompt) → (action, params) | None
 """
+import sys
 import pytest
 from core.pattern_dispatcher import PatternDispatcher, _extract_room, _extract_duration
+
+_IS_LINUX = sys.platform != "win32"
 
 
 @pytest.fixture
@@ -74,19 +77,28 @@ def test_timer(pd):
 def test_shell_disk(pd):
     action, params = pd.match("espace disque")
     assert action == "shell-exec"
-    assert "df" in params["command"]
+    if _IS_LINUX:
+        assert "df" in params["command"]
+    else:
+        assert "Get-PSDrive" in params["command"]
 
 
 def test_shell_ram(pd):
     action, params = pd.match("utilisation mémoire")
     assert action == "shell-exec"
-    assert "free" in params["command"]
+    if _IS_LINUX:
+        assert "free" in params["command"]
+    else:
+        assert "Get-CimInstance" in params["command"]
 
 
 def test_shell_cpu(pd):
     action, params = pd.match("charge cpu")
     assert action == "shell-exec"
-    assert "top" in params["command"]
+    if _IS_LINUX:
+        assert "top" in params["command"]
+    else:
+        assert "Get-Process" in params["command"]
 
 
 # --- Weather ---
