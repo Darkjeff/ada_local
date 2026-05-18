@@ -73,6 +73,12 @@ DEFAULT_SETTINGS = {
         "confidence_threshold": 0.45,
         "embed_timeout_s": 5.0,
         "retry_cooldown_s": 30.0,
+    },
+    "n8n": {
+        "url": "http://localhost:5678",
+        "timeout_s": 10.0,
+        "fallback_enabled": True,
+        "cooldown_s": 30.0,
     }
 }
 
