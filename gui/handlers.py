@@ -10,6 +10,8 @@ from core.model_manager import ensure_exclusive_qwen
 from core.model_persistence import ensure_qwen_loaded, mark_qwen_used
 from core.settings_store import settings as app_settings
 from core.function_executor import executor as function_executor
+from core.pattern_dispatcher import pattern_dispatcher
+from core.n8n_executor import n8n_executor
 from core.skill_manager import skill_manager
 from core.memory_store import memory_store
 
@@ -343,13 +345,45 @@ class ChatWorker(QObject):
         return False
 
     def _handle_function_gemma(self):
-        """Use direct pattern dispatch first, then Ollama tool-calling as fallback."""
+        """
+        Intent dispatch pipeline:
+        1. PatternDispatcher  — deterministic regex, <1 ms, no LLM
+        2. N8NExecutor        — POST to n8n webhook; falls back to FunctionExecutor
+        3. LLM (qwen3)        — fallback for ambiguous prompts
+        """
         self.status.emit("Dispatching...")
 
-        # Fast path: rule-based shell dispatch (no LLM round-trip needed)
-        if self._direct_shell_dispatch():
+        # --- 1. PatternDispatcher fast path ---
+        matched = pattern_dispatcher.match(self.user_text)
+        if matched:
+            action, params = matched
+            self.status.emit(f"Executing {action}...")
+
+            if action == "web-search":
+                self.search_start.emit(params.get("query", ""))
+
+            result = n8n_executor.call(action, params)
+
+            if action == "web-search":
+                self.search_end.emit()
+
+            self.toast.emit(result["message"][:120], result["success"])
+
+            # Emit Qt signals for side-effects that require UI updates
+            func_name = action.replace("-", "_")   # e.g. "set-timer" → "set_timer"
+            if action == "set-timer" and result["success"]:
+                seconds = result.get("data", {}).get("seconds", 0) if result.get("data") else 0
+                label   = result.get("data", {}).get("label", "Timer") if result.get("data") else "Timer"
+                self.set_timer_signal.emit(seconds, label)
+            elif action == "set-alarm" and result["success"]:
+                self.reload_alarms.emit()
+            elif action == "calendar-event" and result["success"]:
+                self.reload_calendar.emit()
+
+            self._generate_response_with_context(func_name, result, action == "web-search")
             return
 
+        # --- 2. LLM tool-calling path (qwen3) ---
         ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
         model = app_settings.get("models.chat", RESPONDER_MODEL)
 
@@ -411,7 +445,7 @@ class ChatWorker(QObject):
 
         call = tool_calls[0]
         func_name = call["function"]["name"]
-        params = call["function"].get("arguments", {})
+        params    = call["function"].get("arguments", {})
 
         if func_name == "passthrough":
             self._stream_qwen_response(bool(params.get("thinking", False)))
@@ -419,10 +453,13 @@ class ChatWorker(QObject):
 
         self.status.emit(f"Executing {func_name}...")
 
+        # Convert LLM func_name (underscores) to n8n action (hyphens)
+        action = func_name.replace("_", "-")
+
         if func_name == "web_search":
             self.search_start.emit(params.get("query", ""))
 
-        result = function_executor.execute(func_name, params)
+        result = n8n_executor.call(action, params)
 
         if func_name == "web_search":
             self.search_end.emit()
@@ -431,8 +468,8 @@ class ChatWorker(QObject):
             self.toast.emit(result["message"], result["success"])
 
         if func_name == "set_timer" and result["success"]:
-            seconds = result.get("data", {}).get("seconds", 0)
-            label = result.get("data", {}).get("label", "Timer")
+            seconds = result.get("data", {}).get("seconds", 0) if result.get("data") else 0
+            label   = result.get("data", {}).get("label", "Timer") if result.get("data") else "Timer"
             self.set_timer_signal.emit(seconds, label)
         elif func_name == "set_alarm" and result["success"]:
             self.reload_alarms.emit()
