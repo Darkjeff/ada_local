@@ -367,10 +367,10 @@ class ChatWorker(QObject):
             if action == "web-search":
                 self.search_end.emit()
 
-            self.toast.emit(result["message"][:120], result["success"])
-
             # Emit Qt signals for side-effects that require UI updates
             func_name = action.replace("-", "_")   # e.g. "set-timer" → "set_timer"
+            if func_name in ACTION_FUNCTIONS:
+                self.toast.emit(result["message"][:120], result["success"])
             if action == "set-timer" and result["success"]:
                 seconds = result.get("data", {}).get("seconds", 0) if result.get("data") else 0
                 label   = result.get("data", {}).get("label", "Timer") if result.get("data") else "Timer"
@@ -465,7 +465,7 @@ class ChatWorker(QObject):
             self.search_end.emit()
 
         if func_name in ACTION_FUNCTIONS:
-            self.toast.emit(result["message"], result["success"])
+            self.toast.emit(result["message"][:120], result["success"])
 
         if func_name == "set_timer" and result["success"]:
             seconds = result.get("data", {}).get("seconds", 0) if result.get("data") else 0
