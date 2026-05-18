@@ -97,6 +97,12 @@ def test_weather(pd):
     assert params == {}
 
 
+def test_weather_temps_quil_fait(pd):
+    action, params = pd.match("quel temps qu'il fait aujourd'hui ?")
+    assert action == "weather"
+    assert params == {}
+
+
 # --- Web search ---
 
 def test_web_search(pd):

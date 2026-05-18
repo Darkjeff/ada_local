@@ -105,7 +105,7 @@ _PATTERNS: list[tuple[str, object]] = [
     ),
     # Weather
     (
-        r"\b(météo|temps\s+qu['']?il\s+fait|weather|température\s+extérieure)\b",
+        r"\b(météo|temps\s+qu['’]?il\s+fait|weather|température\s+extérieure)\b",
         lambda m, t: ("weather", {}),
     ),
     # Web search  — must be last (greedy group 2 captures the rest of the prompt)
