@@ -67,6 +67,12 @@ DEFAULT_SETTINGS = {
         "audio_output_device": -1,         # -1 = system default
         "speech_output_mode": "local",     # "local" | "ha_media_player"
         "ha_tts_entity": "",               # selected HA media_player entity_id (device id in registry)
+    },
+    "semantic_router": {
+        "embedding_model": "nomic-embed-text",
+        "confidence_threshold": 0.45,
+        "embed_timeout_s": 5.0,
+        "retry_cooldown_s": 30.0,
     }
 }
 
