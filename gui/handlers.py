@@ -364,12 +364,29 @@ class ChatWorker(QObject):
                         {
                             "role": "system",
                             "content": (
-                                "You are a function dispatcher. You MUST call one of the available tools. "
-                                "NEVER respond with plain text. "
-                                "For any request about disk space, CPU, RAM, processes, files, network, "
-                                "system info, or running commands: call shell_exec with the appropriate "
-                                "Linux bash command (df -h, free -h, top -bn1, ps aux, etc.). "
-                                "For greetings or questions that need no action: call passthrough."
+                                "You are a smart home function dispatcher. "
+                                "You MUST always call one of the available tools — NEVER respond with plain text.\n\n"
+                                "Tool selection rules:\n"
+                                "- control_light: for ANY request involving lights, lamps, LEDs, or room lighting "
+                                "(French: lumière, lampe, éclairage, led, allume, éteins, désactive, coupe, baisse). "
+                                "Use action='off' for off/éteins/désactive/coupe/arrête, "
+                                "action='on' for on/allume/active/mets, "
+                                "action='dim' for dim/baisse/réduis. "
+                                "Set device_name to the room or device mentioned (e.g. 'bureau', 'salon', 'chambre'), "
+                                "or 'all' if no specific device is mentioned.\n"
+                                "- set_timer: for countdown timers (minuterie, timer, dans X minutes).\n"
+                                "- shell_exec: for system commands — disk space (df -h), RAM (free -h), "
+                                "CPU (top -bn1), processes (ps aux), network (ip addr), etc.\n"
+                                "- web_search: for internet searches.\n"
+                                "- passthrough: ONLY for greetings, chitchat, or questions needing no action.\n\n"
+                                "Examples:\n"
+                                "- 'éteins la lumière' → control_light(action='off', device_name='all')\n"
+                                "- 'désactive l\\'éclairage du bureau' → control_light(action='off', device_name='bureau')\n"
+                                "- 'allume les lumières du salon' → control_light(action='on', device_name='salon')\n"
+                                "- 'baisse la lumière' → control_light(action='dim', device_name='all', brightness=30)\n"
+                                "- 'coupe tout' → control_light(action='off', device_name='all')\n"
+                                "- 'set a 5 minute timer' → set_timer(duration='5 minutes')\n"
+                                "- 'espace disque' → shell_exec(command='df -h')"
                             ),
                         },
                         {"role": "user", "content": self.user_text},

@@ -169,7 +169,8 @@ class FunctionExecutor:
     async def _async_control_light(self, params: Dict) -> Dict:
         """Async implementation of light control."""
         action = params.get("action", "toggle")
-        device_name = params.get("device_name", "light")
+        # Accept both "device_name" (executor schema) and "room" (FUNCTIONS schema in config.py)
+        device_name = params.get("device_name") or params.get("room") or "all"
         brightness = params.get("brightness")
         color = params.get("color")
 
@@ -182,7 +183,8 @@ class FunctionExecutor:
             target_ids = []
             target_names = []
 
-            if device_name_lower in ("all", "lights", "light", "everything"):
+            if device_name_lower in ("all", "lights", "light", "everything",
+                                      "lumière", "lumières", "lampe", "lampes", "éclairage"):
                 for eid, info in self.ha_manager.entities.items():
                     target_ids.append(eid)
                     target_names.append(info.get("attributes", {}).get("friendly_name", eid))
@@ -252,7 +254,8 @@ class FunctionExecutor:
         target_names = []
         device_name_lower = device_name.lower()
         
-        if device_name_lower in ("all", "lights", "light", "everything"):
+        if device_name_lower in ("all", "lights", "light", "everything",
+                                  "lumière", "lumières", "lampe", "lampes", "éclairage"):
              for ip, info in devices.items():
                  target_ips.append(ip)
                  target_names.append(info.get("alias", ip))
