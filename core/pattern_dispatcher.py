@@ -105,7 +105,7 @@ _PATTERNS: list[tuple[str, object]] = [
     ),
     # Weather
     (
-        r"\b(météo|temps\s+qu[''il]\s+fait|weather|température\s+extérieure)\b",
+        r"\b(météo|temps\s+qu['']?il\s+fait|weather|température\s+extérieure)\b",
         lambda m, t: ("weather", {}),
     ),
     # Web search  — must be last (greedy group 2 captures the rest of the prompt)
@@ -139,7 +139,7 @@ class PatternDispatcher:
         Try each rule in order. Return (action, params) for the first match,
         or None if no rule applies.
         """
-        if not prompt or not prompt.strip():
+        if not isinstance(prompt, str) or not prompt.strip():
             return None
         for compiled_re, extractor in _COMPILED:
             m = compiled_re.search(prompt)

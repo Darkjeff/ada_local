@@ -1,5 +1,5 @@
 """
-15 tests for core/pattern_dispatcher.py
+17 tests for core/pattern_dispatcher.py
 
 PatternDispatcher.match(prompt) → (action, params) | None
 """
@@ -66,7 +66,7 @@ def test_light_dim(pd):
 def test_timer(pd):
     action, params = pd.match("minuterie de 10 minutes")
     assert action == "set-timer"
-    assert "10" in params["duration"]
+    assert params["duration"] == "10 minutes"
 
 
 # --- Shell ---
@@ -122,7 +122,7 @@ def test_room_extraction():
 
 
 def test_extract_duration_minutes():
-    assert "10" in _extract_duration("minuterie de 10 minutes")
+    assert _extract_duration("minuterie de 10 minutes") == "10 minutes"
 
 
 def test_extract_duration_fallback():
