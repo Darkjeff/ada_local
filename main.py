@@ -13,8 +13,10 @@ faulthandler.enable()
 # WebEngine / Chromium — disable GPU rendering (required for RDP / headless environments)
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
     "--no-sandbox --disable-gpu --disable-software-rasterizer "
-    "--disable-gpu-compositing --disable-gpu-sandbox"
+    "--disable-gpu-compositing --disable-gpu-sandbox "
+    "--disable-dev-shm-usage --single-process"
 )
+os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"      # no parallel tokenizers workers
 os.environ["JOBLIB_MULTIPROCESSING"] = "0"           # disable loky pool entirely
