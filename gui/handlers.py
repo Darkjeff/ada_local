@@ -305,7 +305,9 @@ class ChatWorker(QObject):
         self.status.emit("Dispatching...")
 
         # --- 1. PatternDispatcher fast path ---
+        print(f"[DEBUG] _handle_function_gemma called, user_text={self.user_text!r}", flush=True)
         matched = pattern_dispatcher.match(self.user_text)
+        print(f"[DEBUG] PatternDispatcher.match → {matched}", flush=True)
         if matched:
             action, params = matched
             self.status.emit(f"Executing {action}...")
