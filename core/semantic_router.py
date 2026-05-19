@@ -96,6 +96,8 @@ _ROUTES: dict[str, list[str]] = {
         "exécute", "lance le script", "shell", "commande powershell",
         "liste les fichiers", "quelle version", "ping",
         "espace disque", "espace disponible", "disk space", "df",
+        "espace disque dur", "disque dur", "espace sur le disque dur",
+        "espace libre sur le disque", "combien d'espace disque",
         "utilisation cpu", "utilisation mémoire", "ram disponible",
         "processus en cours", "liste les processus", "process list",
         "quel est l'espace", "combien d'espace", "how much disk",
