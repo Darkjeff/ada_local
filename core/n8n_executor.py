@@ -134,6 +134,7 @@ class N8NExecutor:
                     "data": None}
 
         # Attempt HTTP call (outside lock — slow operation)
+        logger.info("[N8N] → POST %s/%s params=%s", base_url, action, params)
         try:
             resp = requests.post(
                 f"{base_url}/{action}",
@@ -143,7 +144,9 @@ class N8NExecutor:
             resp.raise_for_status()
             with self._lock:
                 self._mark_up()
-            return self._normalize(resp.json())
+            result = self._normalize(resp.json())
+            logger.info("[N8N] ← %s success=%s message=%s", action, result.get("success"), result.get("message", "")[:80])
+            return result
 
         except (requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout):
