@@ -295,55 +295,6 @@ class ChatWorker(QObject):
             if rem:
                 tts.queue_sentence(rem)
 
-    def _direct_shell_dispatch(self) -> bool:
-        """
-        Pattern-match common system queries and call shell_exec directly,
-        bypassing the LLM tool-calling step for reliability.
-        Returns True if dispatched, False if no pattern matched.
-        """
-        import re, sys
-        text = self.user_text.lower()
-        # normalise apostrophes
-        text = re.sub(r"[^\w\s]", " ", text)
-
-        is_linux = sys.platform != "win32"
-
-        patterns = [
-            # disk space
-            (r"\b(espace|disque|disk|space|libre|free|df|drive|stockage)\b",
-             "df -h" if is_linux else "Get-PSDrive | Where-Object {$_.Used -ne $null} | Select-Object Name,@{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}},@{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}"),
-            # RAM/memory
-            (r"\b(ram|m[eé]moire|memory|free)\b",
-             "free -h" if is_linux else "Get-CimInstance Win32_OperatingSystem | Select-Object @{N='Total(GB)';E={[math]::Round($_.TotalVisibleMemorySize/1MB,1)}},@{N='Free(GB)';E={[math]::Round($_.FreePhysicalMemory/1MB,1)}}"),
-            # CPU usage
-            (r"\b(cpu|processeur|processor|charge|load|utilisation)\b",
-             "top -bn1 | head -15" if is_linux else "Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name,CPU,WorkingSet"),
-            # processes
-            (r"\b(processus|process|ps|pid|tâche|task)\b",
-             "ps aux --sort=-%cpu | head -20" if is_linux else "Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,Id,CPU"),
-            # network
-            (r"\b(r[eé]seau|network|ip|netstat|connexion|interface)\b",
-             "ip addr show" if is_linux else "ipconfig"),
-            # python version
-            (r"\b(python|python3)\b.*\b(version|ver)\b",
-             "python3 --version" if is_linux else "python --version"),
-            # uptime
-            (r"\buptime\b",
-             "uptime" if is_linux else "(Get-Date) - (gcim Win32_OperatingSystem).LastBootUpTime"),
-            # temperature
-            (r"\b(temp[eé]rature|thermal|chaleur)\b",
-             "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | awk '{print $1/1000 \"°C\"}'" if is_linux else "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi 2>$null"),
-        ]
-
-        for pattern, command in patterns:
-            if re.search(pattern, text):
-                self.status.emit("Executing shell_exec...")
-                result = function_executor.execute("shell_exec", {"command": command})
-                self.toast.emit(result["message"][:120], result["success"])
-                self._generate_response_with_context("shell_exec", result, False)
-                return True
-        return False
-
     def _handle_function_gemma(self):
         """
         Intent dispatch pipeline:
@@ -364,24 +315,16 @@ class ChatWorker(QObject):
 
             result = n8n_executor.call(action, params)
 
-            if action == "web-search":
-                self.search_end.emit()
-
-            # Emit Qt signals for side-effects that require UI updates
-            func_name = action.replace("-", "_")   # e.g. "set-timer" → "set_timer"
-            if func_name in ACTION_FUNCTIONS:
-                self.toast.emit(result["message"][:120], result["success"])
-            if action == "set-timer" and result["success"]:
-                seconds = result.get("data", {}).get("seconds", 0) if result.get("data") else 0
-                label   = result.get("data", {}).get("label", "Timer") if result.get("data") else "Timer"
-                self.set_timer_signal.emit(seconds, label)
-            elif action == "set-alarm" and result["success"]:
-                self.reload_alarms.emit()
-            elif action == "calendar-event" and result["success"]:
-                self.reload_calendar.emit()
-
-            self._generate_response_with_context(func_name, result, action == "web-search")
+            # --- TEMPORARY DEBUG ---
+            self.simple_response.emit(
+                f"[N8N DEBUG]\n"
+                f"action={action}\n"
+                f"params={params}\n"
+                f"success={result.get('success')}\n"
+                f"message={result.get('message')}"
+            )
             return
+            # --- END DEBUG ---
 
         # --- 2. LLM tool-calling path (qwen3) ---
         ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
