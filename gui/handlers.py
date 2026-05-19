@@ -482,7 +482,7 @@ class ChatWorker(QObject):
                 else:
                     context_msg = f"ACTION RESULT: {func_name} {status}. {result.get('message', '')}"
             elif func_name == "shell_exec":
-                cmd = result.get("data", {}).get("command", "")
+                cmd = (result.get("data") or {}).get("command", "")
                 output = result.get("message", "")
                 if result.get("success"):
                     context_msg = (
