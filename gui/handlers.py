@@ -302,6 +302,7 @@ class ChatWorker(QObject):
         2. N8NExecutor        — POST to n8n webhook; falls back to FunctionExecutor
         3. LLM (qwen3)        — fallback for ambiguous prompts
         """
+        print(f"[TRACE] _handle_function_gemma called: {self.user_text!r}", flush=True)
         self.status.emit("Dispatching...")
 
         # --- 1. PatternDispatcher fast path ---
