@@ -10,6 +10,12 @@ faulthandler.enable()
 
 # Must be set BEFORE any tokenizers/HuggingFace/loky import to prevent
 # semaphore leaks and segfault at shutdown caused by loky process pool.
+# WebEngine / Chromium — disable GPU rendering (required for RDP / headless environments)
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+    "--no-sandbox --disable-gpu --disable-software-rasterizer "
+    "--disable-gpu-compositing --disable-gpu-sandbox"
+)
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"      # no parallel tokenizers workers
 os.environ["JOBLIB_MULTIPROCESSING"] = "0"           # disable loky pool entirely
 os.environ["LOKY_MAX_CPU_COUNT"] = "1"               # hard cap if loky is still used
