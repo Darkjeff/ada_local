@@ -60,7 +60,6 @@ class ChatWorker(QObject):
             from core.semantic_router import get_route
             self.status.emit("Routing...")
             route = get_route(self.user_text)
-            print(f"[TRACE] process() user_text={self.user_text!r} → route={route}", flush=True)
 
             if route == "qwen_basic":
                 self._stream_qwen_response(False)
@@ -303,7 +302,6 @@ class ChatWorker(QObject):
         2. N8NExecutor        — POST to n8n webhook; falls back to FunctionExecutor
         3. LLM (qwen3)        — fallback for ambiguous prompts
         """
-        print(f"[TRACE] _handle_function_gemma called: {self.user_text!r}", flush=True)
         self.status.emit("Dispatching...")
 
         # --- 1. PatternDispatcher fast path ---
