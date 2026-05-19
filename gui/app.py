@@ -33,6 +33,7 @@ from gui.tabs.printers import PrintersTab
 from gui.tabs.skills import SkillsTab
 from gui.tabs.memory import MemoryTab
 from gui.tabs.senses import SensesTab
+from gui.tabs.infrastructure import InfrastructureTab
 from gui.components.system_monitor import SystemMonitor
 from gui.components.voice_indicator import VoiceIndicator
 from core.llm import preload_models
@@ -225,6 +226,7 @@ class MainWindow(FluentWindow):
         self.skills_lazy = LazyTab(SkillsTab, "skillsInterface")
         self.memory_lazy = LazyTab(MemoryTab, "memoryInterface")
         self.senses_lazy = LazyTab(SensesTab, "sensesInterface")
+        self.infra_lazy  = LazyTab(InfrastructureTab, "infrastructureInterface")
 
         self.addSubInterface(self.chat_lazy, FIF.CHAT, tr("nav.chat"))
         self.addSubInterface(self.planner_lazy, FIF.CALENDAR, tr("nav.planner"))
@@ -236,6 +238,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.skills_lazy, FIF.BOOK_SHELF, tr("nav.skills"))
         self.addSubInterface(self.memory_lazy, FIF.HISTORY, tr("nav.memory"))
         self.addSubInterface(self.senses_lazy, FIF.HEADPHONE, tr("nav.senses"))
+        self.addSubInterface(self.infra_lazy, FIF.IOT, tr("nav.infrastructure"))
 
         # Settings at bottom
         self.settings_lazy = LazyTab(SettingsTab, "settingsInterface")
