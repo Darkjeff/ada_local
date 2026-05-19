@@ -305,9 +305,7 @@ class ChatWorker(QObject):
         self.status.emit("Dispatching...")
 
         # --- 1. PatternDispatcher fast path ---
-        print(f"[DEBUG] _handle_function_gemma called, user_text={self.user_text!r}", flush=True)
         matched = pattern_dispatcher.match(self.user_text)
-        print(f"[DEBUG] PatternDispatcher.match → {matched}", flush=True)
         if matched:
             action, params = matched
             self.status.emit(f"Executing {action}...")
@@ -317,16 +315,24 @@ class ChatWorker(QObject):
 
             result = n8n_executor.call(action, params)
 
-            # --- TEMPORARY DEBUG ---
-            self.simple_response.emit(
-                f"[N8N DEBUG]\n"
-                f"action={action}\n"
-                f"params={params}\n"
-                f"success={result.get('success')}\n"
-                f"message={result.get('message')}"
-            )
+            if action == "web-search":
+                self.search_end.emit()
+
+            # Emit Qt signals for side-effects that require UI updates
+            func_name = action.replace("-", "_")   # e.g. "set-timer" → "set_timer"
+            if func_name in ACTION_FUNCTIONS:
+                self.toast.emit(result["message"][:120], result["success"])
+            if action == "set-timer" and result["success"]:
+                seconds = result.get("data", {}).get("seconds", 0) if result.get("data") else 0
+                label   = result.get("data", {}).get("label", "Timer") if result.get("data") else "Timer"
+                self.set_timer_signal.emit(seconds, label)
+            elif action == "set-alarm" and result["success"]:
+                self.reload_alarms.emit()
+            elif action == "calendar-event" and result["success"]:
+                self.reload_calendar.emit()
+
+            self._generate_response_with_context(func_name, result, action == "web-search")
             return
-            # --- END DEBUG ---
 
         # --- 2. LLM tool-calling path (qwen3) ---
         ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
