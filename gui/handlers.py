@@ -60,6 +60,7 @@ class ChatWorker(QObject):
             from core.semantic_router import get_route
             self.status.emit("Routing...")
             route = get_route(self.user_text)
+            print(f"[TRACE] process() user_text={self.user_text!r} → route={route}", flush=True)
 
             if route == "qwen_basic":
                 self._stream_qwen_response(False)
