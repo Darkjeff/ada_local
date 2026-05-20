@@ -262,6 +262,8 @@ class TelegramAdapter:
 
         if route == "function_gemma":
             response = self._call_with_tools(text, messages)
+        elif route == "vision":
+            response = self._handle_vision(text, chat_id)
         else:
             response = self._call_llm(messages)
 
@@ -304,6 +306,54 @@ class TelegramAdapter:
         memory_store.save(session_id, "assistant", result)
 
         self._send(chat_id, result)
+
+    def _handle_vision(self, text: str, chat_id: int) -> str:
+        """Camera-aware vision handler for Telegram. Returns French description."""
+        try:
+            from core.camera_manager import camera_manager
+            from core.vision import describe, describe_from_bytes
+            import re as _re
+
+            if not camera_manager.list_endpoints():
+                camera_manager.refresh()
+
+            endpoints = camera_manager.list_endpoints()
+            live = [ep for ep in endpoints if ep.state != "unavailable"]
+
+            prompt = text or "Décris ce que tu vois en détail en français."
+
+            _hint_re = _re.compile(
+                r"\b(?:au|dans\s+le|dans\s+la|dans\s+l[''']?|le|la|du|caméra)\s+(\w+(?:\s+\w+)?)",
+                _re.IGNORECASE,
+            )
+            m = _hint_re.search(text)
+            hint = m.group(1).strip() if m else ""
+
+            if not live:
+                result = describe(prompt=prompt)
+            else:
+                match = camera_manager.find_by_area(hint) if hint else None
+                if match is None and len(live) == 1:
+                    match = live[0]
+                if match is None and len(live) > 1:
+                    names = ", ".join(ep.area_name or ep.friendly_name for ep in live)
+                    return f"J'ai {len(live)} caméras disponibles : {names}. Laquelle souhaitez-vous ?"
+                if match is None:
+                    result = describe(prompt=prompt)
+                else:
+                    print(f"[Telegram] Vision → {match.entity_id} ({match.area_name})")
+                    snap = camera_manager.capture_snapshot(match.entity_id)
+                    if not snap.success:
+                        return f"Je ne peux pas accéder à la caméra {match.area_name or match.friendly_name}."
+                    with open(snap.path, "rb") as f:
+                        jpg = f.read()
+                    result = describe_from_bytes(jpg, prompt=prompt)
+
+            return result.get("description") or "Je ne peux pas accéder à la caméra."
+
+        except Exception as e:
+            print(f"[Telegram] Vision error: {e}")
+            return "Erreur lors de l'accès à la caméra."
 
     def _call_with_tools(self, text: str, conversation_messages: list) -> str:
         """Route through Ollama tool-calling, like voice_assistant._handle_function_call."""

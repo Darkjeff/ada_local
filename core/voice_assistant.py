@@ -3,6 +3,7 @@ Voice Assistant - Main orchestrator for Alexa-like voice interaction.
 Manages: STT → Function Gemma → Qwen → TTS pipeline.
 """
 
+import re
 import threading
 import json
 import requests
@@ -20,6 +21,18 @@ from core.tts import tts, SentenceBuffer
 from core.function_executor import executor as function_executor
 from core.semantic_router import get_route as semantic_route
 from core.skill_manager import skill_manager
+
+_AREA_HINT_RE = re.compile(
+    r"\b(?:au|dans\s+le|dans\s+la|dans\s+l[''']?|le|la|du|de\s+la|caméra)\s+(\w+(?:\s+\w+)?)",
+    re.IGNORECASE,
+)
+
+
+def _extract_area_hint(text: str) -> str:
+    """Extract room/area hint from a vision query. Returns '' if none found."""
+    m = _AREA_HINT_RE.search(text)
+    return m.group(1).strip() if m else ""
+
 
 # Functions that are actions (not passthrough)
 ACTION_FUNCTIONS = {
@@ -256,22 +269,62 @@ class VoiceAssistant(QObject):
         self._generate_response_with_context(func_name, result, user_text)
 
     def _handle_vision(self, user_text: str):
-        """Capture webcam + describe via gemma4, then read aloud via Qwen."""
+        """Capture from best HA camera (or local webcam) and describe in French."""
         try:
-            from core.vision import describe
-            result = describe(prompt=user_text or "Décris ce que tu vois en détail.")
-            description = result.get("description", "")
-            if not description:
-                description = "Je ne peux pas accéder à la webcam."
-            # Speak the description directly via TTS
+            from core.camera_manager import camera_manager
+            from core.vision import describe, describe_from_bytes
             from core.tts import tts, SentenceBuffer
+
+            if not camera_manager.list_endpoints():
+                camera_manager.refresh()
+
+            endpoints = camera_manager.list_endpoints()
+            live = [ep for ep in endpoints if ep.state != "unavailable"]
+
+            prompt = user_text or "Décris ce que tu vois en détail en français."
+            hint = _extract_area_hint(user_text)
+
+            if not live:
+                result = describe(prompt=prompt)
+            else:
+                match = camera_manager.find_by_area(hint) if hint else None
+
+                if match is None and len(live) == 1:
+                    match = live[0]
+
+                if match is None and len(live) > 1:
+                    names = ", ".join(ep.area_name or ep.friendly_name for ep in live)
+                    description = (
+                        f"J'ai {len(live)} caméras disponibles : {names}. "
+                        "Laquelle souhaitez-vous utiliser ?"
+                    )
+                    buf = SentenceBuffer()
+                    for s in buf.add(description) + [buf.flush()]:
+                        if s:
+                            tts.queue_sentence(s)
+                    return
+
+                if match is None:
+                    result = describe(prompt=prompt)
+                else:
+                    print(f"{GRAY}[VoiceAssistant] Vision → {match.entity_id} ({match.area_name}){RESET}")
+                    snap = camera_manager.capture_snapshot(match.entity_id)
+                    if not snap.success:
+                        result = {
+                            "success": False,
+                            "description": f"Je ne peux pas accéder à la caméra {match.area_name or match.friendly_name}.",
+                        }
+                    else:
+                        with open(snap.path, "rb") as f:
+                            jpg = f.read()
+                        result = describe_from_bytes(jpg, prompt=prompt)
+
+            description = result.get("description") or "Je ne peux pas accéder à la caméra."
             buf = SentenceBuffer()
-            sentences = buf.add(description)
-            for s in sentences:
-                tts.queue_sentence(s)
-            rem = buf.flush()
-            if rem:
-                tts.queue_sentence(rem)
+            for s in buf.add(description) + [buf.flush()]:
+                if s:
+                    tts.queue_sentence(s)
+
         except Exception as e:
             print(f"{GRAY}[VoiceAssistant] Vision error: {e}{RESET}")
         finally:
