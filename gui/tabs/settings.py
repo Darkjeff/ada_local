@@ -559,6 +559,36 @@ class SettingsTab(ScrollArea):
             self.ha_group
         )
         self.ha_group.addSettingCard(self.ha_token_card)
+
+        self.ha_door_entity_card = TextInputCard(
+            FIF.SEARCH,
+            tr("settings.ha_door_entity"),
+            tr("settings.ha_door_entity_desc"),
+            "home_assistant.door_entity",
+            "binary_sensor.t110_contact",
+            self.ha_group
+        )
+        self.ha_group.addSettingCard(self.ha_door_entity_card)
+
+        self.ha_door_message_card = TextInputCard(
+            FIF.CHAT,
+            tr("settings.ha_door_message"),
+            tr("settings.ha_door_message_desc"),
+            "home_assistant.door_message",
+            "🚪 Ciel un client !",
+            self.ha_group
+        )
+        self.ha_group.addSettingCard(self.ha_door_message_card)
+
+        self.ha_door_alert_card = SwitchCard(
+            FIF.SEND,
+            tr("settings.ha_door_alert"),
+            tr("settings.ha_door_alert_desc"),
+            "home_assistant.door_alert_enabled",
+            self.ha_group
+        )
+        self.ha_group.addSettingCard(self.ha_door_alert_card)
+
         self.expandLayout.addWidget(self.ha_group)
 
         # ── Voice & Audio ─────────────────────────────────────────────
@@ -782,6 +812,12 @@ class SettingsTab(ScrollArea):
         self.ha_url_card.test_btn.setText(tr("settings.test_btn"))
         self.ha_token_card.titleLabel.setText(tr("settings.ha_token"))
         self.ha_token_card.contentLabel.setText(tr("settings.ha_token_desc"))
+        self.ha_door_entity_card.titleLabel.setText(tr("settings.ha_door_entity"))
+        self.ha_door_entity_card.contentLabel.setText(tr("settings.ha_door_entity_desc"))
+        self.ha_door_message_card.titleLabel.setText(tr("settings.ha_door_message"))
+        self.ha_door_message_card.contentLabel.setText(tr("settings.ha_door_message_desc"))
+        self.ha_door_alert_card.titleLabel.setText(tr("settings.ha_door_alert"))
+        self.ha_door_alert_card.contentLabel.setText(tr("settings.ha_door_alert_desc"))
 
         self.tts_voice_card.titleLabel.setText(tr("settings.tts_voice"))
 
