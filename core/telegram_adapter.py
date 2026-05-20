@@ -41,6 +41,12 @@ Commandes disponibles :
 
 Envoie n'importe quel message texte ou une photo pour interagir avec ADA."""
 
+# Triggers déterministes — répondent sans passer par le LLM
+_INFRA_TRIGGERS = frozenset({
+    "état infra", "etat infra", "status infra", "infrastructure status",
+    "état de l'infra", "etat de l infra",
+})
+
 
 class TelegramAdapter:
     """
@@ -203,6 +209,14 @@ class TelegramAdapter:
 
     def _handle_text(self, chat_id: int, text: str):
         session_id = f"telegram_{chat_id}"
+
+        # --- Routing déterministe : état infra ---
+        text_lower = text.lower().strip()
+        if any(trigger in text_lower for trigger in _INFRA_TRIGGERS):
+            from core.runtime_state import runtime_state
+            runtime_state.refresh()
+            self._send(chat_id, runtime_state.format_infra_status_fr())
+            return
 
         with self._lock:
             history = self._histories.setdefault(chat_id, [])
