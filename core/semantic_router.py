@@ -84,15 +84,34 @@ _ROUTES: dict[str, list[str]] = {
     ],
 
     "function_gemma": [
+        # Light control — many phrasings to resist embedding drift
         "allume la lumière", "éteins la lumière", "mets la lumière",
+        "allume les lumières", "éteins les lumières",
+        "allume les lumières du bureau", "allume les lumières du salon",
+        "allume les lumières de la cuisine", "allume les lumières de la chambre",
+        "tu peux allumer les lumières", "peux-tu allumer les lumières",
+        "tu peux éteindre les lumières", "peux-tu éteindre les lumières",
+        "tu peux allumer la lumière du bureau",
+        "allume la lumière du bureau", "éteins la lumière du bureau",
+        "mets les lumières", "coupe les lumières", "baisse les lumières",
+        "augmente la luminosité", "baisse la luminosité",
         "turn on the lights", "turn off the lights", "dim the lights",
+        "switch on the lights", "switch off the lights",
+        "contrôle la lumière", "contrôle les lumières", "gère les lumières",
+        # Timer / alarm
         "minuterie", "timer", "set a timer", "set an alarm", "réveil",
+        "mets un timer", "crée une minuterie", "démarre un timer",
+        # Tasks / calendar
         "ajoute une tâche", "add a task", "crée un événement",
         "create a calendar event", "schedule meeting",
+        # Web search
         "cherche sur internet", "search the web", "look up",
+        # Weather
         "quel temps fait-il", "weather in", "météo à",
+        # Schedule
         "qu'est-ce que j'ai aujourd'hui", "what tasks do I have",
         "what's on my schedule", "rappelle-moi",
+        # Shell / system
         "exécute", "lance le script", "shell", "commande powershell",
         "liste les fichiers", "quelle version", "ping",
         "espace disque", "espace disponible", "disk space", "df",
@@ -332,11 +351,21 @@ class EmbeddingRouter:
 _router = EmbeddingRouter()
 
 
+_FUNCTION_KEYWORDS = re.compile(
+    r"\b(allume|éteins|étein|coupe|baisse|augmente|mets)\b.{0,40}\b(lumi[eè]re|lumières|lampe|lampes|led)\b"
+    r"|\b(lumi[eè]re|lumières|lampe|lampes)\b.{0,20}\b(allume|éteins|étein|coupe|baisse|augmente)\b",
+    re.IGNORECASE,
+)
+
+
 def get_route(prompt: str) -> str:
     """
     Route a prompt to one of the VALID_ROUTES.
     Public interface — identical signature to the previous keyword router.
     """
+    # Fast keyword guard for unambiguous light-control commands — beats embedding drift
+    if _FUNCTION_KEYWORDS.search(prompt):
+        return "function_gemma"
     return _router.route(prompt)
 
 
