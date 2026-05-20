@@ -58,6 +58,24 @@ if __name__ == "__main__":
     from core.settings_store import settings as _settings
     start_morning_scheduler(hour=_settings.get("briefing.hour", 7))
 
+    # Start HA state watcher — fires callbacks on entity state changes
+    from core.ha_state_watcher import ha_state_watcher
+    ha_state_watcher.start()
+
+    # Door alert: send Telegram message when door sensor opens
+    def _on_door_open(entity_id: str, state: str) -> None:
+        if not _settings.get("home_assistant.door_alert_enabled", False):
+            return
+        msg = _settings.get("home_assistant.door_message", "🚪 Ciel un client !")
+        try:
+            telegram_adapter.send_message(msg)
+        except Exception as e:
+            print(f"[DoorAlert] Telegram send failed: {e}")
+
+    _door_entity = _settings.get("home_assistant.door_entity", "")
+    if _door_entity:
+        ha_state_watcher.subscribe(_door_entity, ["on"], _on_door_open)
+
     app = QApplication(sys.argv)
     
     # Configure Aura Theme
