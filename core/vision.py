@@ -131,3 +131,37 @@ def describe(
             return {"success": True, "description": text, "image_b64": img_b64}
 
     return {"success": False, "description": "Erreur : aucun modèle vision n'a pu répondre.", "image_b64": img_b64}
+
+
+def describe_from_bytes(
+    jpg_bytes: bytes,
+    prompt: str = _DEFAULT_PROMPT,
+    model: Optional[str] = None,
+) -> dict:
+    """
+    Describe an image from raw JPEG bytes (e.g. from HA camera snapshot).
+    Same return structure as describe(): {success, description, image_b64}.
+
+    Returns:
+        {
+            "success": bool,
+            "description": str,
+            "image_b64": str,   # JPEG as base64 (for UI preview)
+        }
+    """
+    img_b64 = base64.b64encode(jpg_bytes).decode("utf-8")
+    base = OLLAMA_URL.rstrip("/")
+    configured = model or _vision_model()
+    models_to_try = [configured] + [m for m in _VISION_MODEL_CASCADE if m != configured]
+
+    for m in models_to_try:
+        print(f"[Vision] Trying model: {m}")
+        text = _try_model(base, m, prompt, img_b64)
+        if text:
+            return {"success": True, "description": text, "image_b64": img_b64}
+
+    return {
+        "success": False,
+        "description": "Erreur : aucun modèle vision n'a pu répondre.",
+        "image_b64": img_b64,
+    }
