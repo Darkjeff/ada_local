@@ -42,6 +42,10 @@ DEFAULT_SETTINGS = {
         "enabled": False,
         "tts_service": "tts.piper",        # HA TTS engine entity (e.g. tts.piper, tts.google_translate)
         "tts_target_entity": "",           # Reserved: future Settings-tab HA TTS config (distinct from runtime senses.ha_tts_entity)
+        "hidden_entities": [],
+        "door_entity": "",
+        "door_message": "🚪 Ciel un client !",
+        "door_alert_enabled": False,
     },
     "kasa": {
         "enabled": True,
