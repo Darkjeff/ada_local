@@ -352,8 +352,10 @@ _router = EmbeddingRouter()
 
 
 _FUNCTION_KEYWORDS = re.compile(
-    r"\b(allume|éteins|étein|coupe|baisse|augmente|mets)\b.{0,40}\b(lumi[eè]re|lumières|lampe|lampes|led)\b"
-    r"|\b(lumi[eè]re|lumières|lampe|lampes)\b.{0,20}\b(allume|éteins|étein|coupe|baisse|augmente)\b",
+    # verb root (handles imperative, infinitive, past participle, conjugated)
+    r"\b(allum\w*|étein\w*|coupez?|baiss\w*|augment\w*)\b.{0,50}"
+    r"\b(lumi[eè]res?|lumieres?|lamp[e]s?|led)\b"
+    r"|\b(lumi[eè]res?|lumieres?|lamp[e]s?)\b.{0,30}\b(allum\w*|étein\w*|coupez?|baiss\w*)\b",
     re.IGNORECASE,
 )
 
