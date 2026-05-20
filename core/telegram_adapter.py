@@ -132,6 +132,23 @@ class TelegramAdapter:
             self._api("sendMessage", chat_id=chat_id, text=chunk,
                       parse_mode="Markdown")
 
+    def notify_owner(self, text: str) -> None:
+        """Send a plain-text notification to the owner chat ID (no Markdown parsing).
+
+        No-op if Telegram is disabled or owner_chat_id is not configured.
+        Suitable for user-editable content (e.g., door alert messages) containing
+        special chars like _, *, `, [ that would break Markdown mode.
+        """
+        if not settings.get("telegram.enabled", False):
+            return
+        owner_id = settings.get("telegram.owner_chat_id", "")
+        if not owner_id:
+            return
+        try:
+            self._api("sendMessage", chat_id=int(owner_id), text=text)
+        except Exception as e:
+            print(f"[Telegram] notify_owner failed: {e}")
+
     def _send_typing(self, chat_id: int):
         self._api("sendChatAction", chat_id=chat_id, action="typing")
 
