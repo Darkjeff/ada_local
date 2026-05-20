@@ -66,9 +66,14 @@ if __name__ == "__main__":
     def _on_door_open(entity_id: str, state: str) -> None:
         if not _settings.get("home_assistant.door_alert_enabled", False):
             return
+        if not _settings.get("telegram.enabled", False):
+            return
+        owner_id = _settings.get("telegram.owner_chat_id", "")
+        if not owner_id:
+            return
         msg = _settings.get("home_assistant.door_message", "🚪 Ciel un client !")
         try:
-            telegram_adapter.send_message(msg)
+            telegram_adapter._send(int(owner_id), msg)
         except Exception as e:
             print(f"[DoorAlert] Telegram send failed: {e}")
 
