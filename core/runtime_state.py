@@ -9,6 +9,7 @@ Usage:
 """
 
 import subprocess
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -141,6 +142,7 @@ class RuntimeStateManager:
     """
 
     def __init__(self):
+        self._lock = threading.Lock()
         self._state: dict[str, Any] = self._empty_state()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -148,17 +150,22 @@ class RuntimeStateManager:
     def refresh(self) -> None:
         """Lance tous les checks et met à jour l'état interne. Ne lève jamais."""
         try:
-            self._state = self._collect()
+            new_state = self._collect()
+            with self._lock:
+                self._state = new_state
         except Exception as e:
-            self._state["warnings"].append(f"refresh error: {e}")
+            with self._lock:
+                self._state["warnings"].append(f"refresh error: {e}")
 
     def get_state(self) -> dict:
         """Retourne l'état complet (dernière collecte)."""
-        return self._state
+        with self._lock:
+            return self._state
 
     def get_infra_summary(self) -> dict:
         """Sous-ensemble services + docker, pratique pour l'UI."""
-        s = self._state
+        with self._lock:
+            s = self._state
         return {
             "services":   s.get("services", {}),
             "docker":     s.get("docker", {}),
