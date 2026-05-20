@@ -126,14 +126,14 @@ def _make_filter_row(labels: list[str]) -> tuple[QHBoxLayout, dict[str, QPushBut
 class _EntityCardWrapper(QWidget):
     """Wraps an entity card with a hide button overlaid in the top-right corner."""
 
-    def __init__(self, entity_id: str, card: QFrame, parent=None):
+    def __init__(self, entity_id: str, card: QFrame, tab: "HomeAutomationTab", parent=None):
         super().__init__(parent)
         self.entity_id = entity_id
+        self._tab = tab
         self._card = card
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(card)
-        self.setFixedSize(card.width(), card.height())
 
         self._eye_btn = ToolButton(FIF.VIEW, self)
         self._eye_btn.setFixedSize(24, 24)
@@ -150,7 +150,7 @@ class _EntityCardWrapper(QWidget):
         if self.entity_id not in hidden:
             hidden.append(self.entity_id)
             settings.set("home_assistant.hidden_entities", hidden)
-        self.hide()
+        self._tab._rebuild_grid()
 
 
 class _HiddenCardRestore(QFrame):
@@ -160,9 +160,10 @@ class _HiddenCardRestore(QFrame):
         super().__init__(parent)
         self._entity_id = entity_id
         self._tab = tab
+        self.setObjectName("hiddenCardRestore")
         self.setFixedSize(300, 160)
         self.setStyleSheet("""
-            _HiddenCardRestore {
+            QFrame#hiddenCardRestore {
                 background-color: #0d121d;
                 border: 1px dashed #2a3556;
                 border-radius: 20px;
@@ -467,7 +468,7 @@ class HomeAutomationTab(QWidget):
         filtered = [e for e in self._all_entities if self._matches_filters(e)]
 
         if self._edit_mode:
-            entities_to_show = self._all_entities
+            entities_to_show = filtered   # respects current filters; hidden entities in filtered will show as restore cards
         else:
             entities_to_show = [e for e in filtered if e.id not in hidden_ids]
 
@@ -491,13 +492,14 @@ class HomeAutomationTab(QWidget):
                         new_camera_cards.append(widget)
                 else:
                     raw_card = entity_card_for(entity, unified_entity_service, self._grid_widget)
-                    widget = _EntityCardWrapper(entity.id, raw_card, self._grid_widget)
+                    widget = _EntityCardWrapper(entity.id, raw_card, self, self._grid_widget)
                     if hasattr(raw_card, "stop"):
                         new_camera_cards.append(raw_card)
 
                 self._grid_layout.addWidget(widget, row, col)
             except Exception as ex:
                 print(f"[HomeAutomation] Card creation failed for {entity.id}: {ex}")
+                continue
 
             col += 1
             if col >= 3:
