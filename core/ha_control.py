@@ -148,6 +148,59 @@ class HAManager:
             if eid.split(".")[0] in CAMERA_DOMAINS
         }
 
+    def get_camera_endpoints(self) -> list[dict]:
+        """
+        Returns camera.* entities with resolved area_name.
+        Joins HA entity registry + area registry + /api/states.
+        Returns [] if HA is unreachable or not configured.
+        """
+        if not self._url or not self._token:
+            return []
+        try:
+            # 1. Entity registry: entity_id → area_id (camera.* only)
+            er_resp = requests.get(
+                f"{self._url}/api/config/entity_registry/list",
+                headers=self._headers(),
+                timeout=5,
+            )
+            er_map: dict[str, str] = {}
+            if er_resp.status_code == 200:
+                for item in er_resp.json():
+                    eid = item.get("entity_id", "")
+                    if eid.startswith("camera."):
+                        er_map[eid] = item.get("area_id") or ""
+
+            # 2. Area registry: area_id → name
+            ar_resp = requests.get(
+                f"{self._url}/api/config/area_registry/list",
+                headers=self._headers(),
+                timeout=5,
+            )
+            area_names: dict[str, str] = {}
+            if ar_resp.status_code == 200:
+                for item in ar_resp.json():
+                    area_names[item["area_id"]] = item["name"]
+
+            # 3. States: friendly_name + state
+            states = self._fetch_all_states()
+
+            result = []
+            for eid, area_id in er_map.items():
+                info = states.get(eid, {})
+                friendly = info.get("attributes", {}).get("friendly_name", eid)
+                state = info.get("state", "unknown")
+                result.append({
+                    "entity_id": eid,
+                    "friendly_name": friendly,
+                    "area_id": area_id,
+                    "area_name": area_names.get(area_id, ""),
+                    "state": state,
+                })
+            return result
+        except Exception as e:
+            print(f"[HAManager] get_camera_endpoints failed: {e}")
+            return []
+
     def get_media_player_entities(self) -> dict[str, Any]:
         """
         Returns media_player entities suitable as TTS output targets.
