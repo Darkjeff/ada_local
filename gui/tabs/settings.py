@@ -329,6 +329,50 @@ class HAUrlInputCard(UrlInputCard):
         self.tester.start()
 
 
+class NavidromeUrlInputCard(UrlInputCard):
+    """URL input card that tests Navidrome via Subsonic ping.view."""
+
+    def _test_connection(self):
+        url = self.url_input.text().strip()
+        if not url:
+            return
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("...")
+        user = settings.get("navidrome.user", "")
+        password = settings.get("navidrome.password", "")
+        ping_url = (
+            f"{url.rstrip('/')}/rest/ping.view"
+            f"?u={user}&p={password}&v=1.16.0&c=ada&f=json"
+        )
+        self.tester = ConnectionTester(ping_url)
+        self.tester.success.connect(self._on_navidrome_success)
+        self.tester.failed.connect(self._on_test_failed)
+        self.tester.finished.connect(self._on_test_done)
+        self.tester.start()
+
+    @Slot()
+    def _on_navidrome_success(self):
+        # Subsonic returns 200 even on auth failure — check the JSON
+        try:
+            import requests as _req
+            url = self.url_input.text().strip()
+            user = settings.get("navidrome.user", "")
+            password = settings.get("navidrome.password", "")
+            r = _req.get(
+                f"{url.rstrip('/')}/rest/ping.view",
+                params={"u": user, "p": password, "v": "1.16.0", "c": "ada", "f": "json"},
+                timeout=5,
+            )
+            body = r.json()
+            if body.get("subsonic-response", {}).get("status") == "ok":
+                self._on_test_success()
+            else:
+                err = body.get("subsonic-response", {}).get("error", {}).get("message", "auth failed")
+                self._on_test_failed(err)
+        except Exception as e:
+            self._on_test_failed(str(e))
+
+
 class SettingsTab(ScrollArea):
     """Comprehensive Settings Tab with model selection and preferences."""
 
@@ -447,6 +491,43 @@ class SettingsTab(ScrollArea):
         self.kasa_test_card.clicked.connect(self._on_kasa_scan)
         self.kasa_group.addSettingCard(self.kasa_test_card)
         self.expandLayout.addWidget(self.kasa_group)
+
+        # ── Navidrome ─────────────────────────────────────────────────
+        self.navidrome_group = SettingCardGroup(tr("settings.navidrome"), self.scrollWidget)
+
+        self.navidrome_url_card = NavidromeUrlInputCard(
+            FIF.MUSIC,
+            tr("settings.navidrome_url"),
+            tr("settings.navidrome_url_desc"),
+            "navidrome.url",
+            self.navidrome_group
+        )
+        self.navidrome_url_card.url_input.setText(
+            settings.get("navidrome.url", "http://localhost:4533")
+        )
+        self.navidrome_group.addSettingCard(self.navidrome_url_card)
+
+        self.navidrome_user_card = TextInputCard(
+            FIF.PEOPLE,
+            tr("settings.navidrome_user"),
+            tr("settings.navidrome_user_desc"),
+            "navidrome.user",
+            "admin",
+            self.navidrome_group
+        )
+        self.navidrome_group.addSettingCard(self.navidrome_user_card)
+
+        self.navidrome_password_card = TextInputCard(
+            FIF.HIDE,
+            tr("settings.navidrome_password"),
+            tr("settings.navidrome_password_desc"),
+            "navidrome.password",
+            "••••••••",
+            self.navidrome_group
+        )
+        self.navidrome_password_card.input.setEchoMode(LineEdit.EchoMode.Password)
+        self.navidrome_group.addSettingCard(self.navidrome_password_card)
+        self.expandLayout.addWidget(self.navidrome_group)
 
         # ── Home Assistant ────────────────────────────────────────────
         self.ha_group = SettingCardGroup(tr("settings.ha"), self.scrollWidget)
@@ -653,6 +734,7 @@ class SettingsTab(ScrollArea):
         self.ai_group.titleLabel.setText(tr("settings.ai_models"))
         self.connection_group.titleLabel.setText(tr("settings.connection"))
         self.kasa_group.titleLabel.setText(tr("settings.kasa"))
+        self.navidrome_group.titleLabel.setText(tr("settings.navidrome"))
         self.ha_group.titleLabel.setText(tr("settings.ha"))
         self.voice_group.titleLabel.setText(tr("settings.voice"))
         self.telegram_group.titleLabel.setText(tr("settings.telegram"))
@@ -684,6 +766,14 @@ class SettingsTab(ScrollArea):
         self.kasa_test_card.titleLabel.setText(tr("settings.kasa_test"))
         self.kasa_test_card.contentLabel.setText(tr("settings.kasa_test_desc"))
         self.kasa_test_card.button.setText(tr("settings.kasa_test_btn"))
+
+        self.navidrome_url_card.titleLabel.setText(tr("settings.navidrome_url"))
+        self.navidrome_url_card.contentLabel.setText(tr("settings.navidrome_url_desc"))
+        self.navidrome_url_card.test_btn.setText(tr("settings.test_btn"))
+        self.navidrome_user_card.titleLabel.setText(tr("settings.navidrome_user"))
+        self.navidrome_user_card.contentLabel.setText(tr("settings.navidrome_user_desc"))
+        self.navidrome_password_card.titleLabel.setText(tr("settings.navidrome_password"))
+        self.navidrome_password_card.contentLabel.setText(tr("settings.navidrome_password_desc"))
 
         self.ha_enabled_card.titleLabel.setText(tr("settings.ha_enabled"))
         self.ha_enabled_card.contentLabel.setText(tr("settings.ha_enabled_desc"))

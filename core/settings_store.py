@@ -80,6 +80,11 @@ DEFAULT_SETTINGS = {
         "fallback_enabled": True,
         "cooldown_s": 30.0,
     },
+    "navidrome": {
+        "url": "http://localhost:4533",
+        "user": "",
+        "password": "",
+    },
 }
 
 
