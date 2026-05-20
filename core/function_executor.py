@@ -179,9 +179,7 @@ class FunctionExecutor:
         if self.ha_manager and not self.ha_manager.entities:
             self.ha_manager.get_entities()
 
-        if (self.ha_manager
-                and self.ha_manager.is_connected
-                and self.ha_manager.entities):
+        if self.ha_manager and self.ha_manager.entities:
 
             device_name_lower = device_name.lower()
             target_ids = []
