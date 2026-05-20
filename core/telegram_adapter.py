@@ -298,14 +298,15 @@ class TelegramAdapter:
 
         prompt = caption if caption else "Décris cette image en détail en français."
 
-        from core.vision import describe
-        result = describe(img_b64, prompt=prompt)
+        from core.vision import describe_from_bytes
+        result = describe_from_bytes(img_data, prompt=prompt)
+        description = result.get("description", "❌ Impossible d'analyser l'image.")
 
         session_id = f"telegram_{chat_id}"
         memory_store.save(session_id, "user", f"[Photo] {caption or '(sans légende)'}")
-        memory_store.save(session_id, "assistant", result)
+        memory_store.save(session_id, "assistant", description)
 
-        self._send(chat_id, result)
+        self._send(chat_id, description)
 
     def _handle_vision(self, text: str, chat_id: int) -> str:
         """Camera-aware vision handler for Telegram. Returns French description."""
