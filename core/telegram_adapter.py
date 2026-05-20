@@ -4,7 +4,7 @@ Telegram Adapter — long-polling bot that routes messages through the ADA pipel
 Architecture:
   - Daemon thread runs the polling loop (no asyncio, pure requests)
   - Each Telegram chat_id gets its own isolated session (memory, history)
-  - Text messages → Ollama (sync, non-streaming) + skill + memory injection
+  - Text messages → semantic router → tool-calling (function_gemma) or Ollama conversation
   - Photos → vision pipeline (llava-phi3)
   - /help, /status, /clear slash commands
 """
@@ -18,10 +18,12 @@ from typing import Optional
 
 import requests
 
-from config import OLLAMA_URL, RESPONDER_MODEL
+from config import OLLAMA_URL, RESPONDER_MODEL, FUNCTIONS
 from core.memory_store import memory_store
 from core.skill_manager import skill_manager
 from core.settings_store import settings
+from core.function_executor import executor as function_executor
+from core.semantic_router import get_route as semantic_route
 
 _API_BASE = "https://api.telegram.org/bot{token}"
 
@@ -255,7 +257,13 @@ class TelegramAdapter:
 
         messages.append({"role": "user", "content": text})
 
-        response = self._call_llm(messages)
+        route = semantic_route(text)
+        print(f"[Telegram] Route: {route}")
+
+        if route == "function_gemma":
+            response = self._call_with_tools(text, messages)
+        else:
+            response = self._call_llm(messages)
 
         # Save to history and memory
         with self._lock:
@@ -296,6 +304,57 @@ class TelegramAdapter:
         memory_store.save(session_id, "assistant", result)
 
         self._send(chat_id, result)
+
+    def _call_with_tools(self, text: str, conversation_messages: list) -> str:
+        """Route through Ollama tool-calling, like voice_assistant._handle_function_call."""
+        try:
+            resp = requests.post(
+                f"{OLLAMA_URL}/api/chat",
+                json={
+                    "model": RESPONDER_MODEL,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a function dispatcher. You MUST call one of the available tools. "
+                                "NEVER respond with plain text. "
+                                "For greetings or conversational questions: call passthrough."
+                            ),
+                        },
+                        {"role": "user", "content": text},
+                    ],
+                    "tools": FUNCTIONS,
+                    "stream": False,
+                    "think": False,
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            tool_calls = resp.json().get("message", {}).get("tool_calls", [])
+        except Exception as e:
+            print(f"[Telegram] Tool-call failed: {e}")
+            return self._call_llm(conversation_messages)
+
+        if not tool_calls:
+            return self._call_llm(conversation_messages)
+
+        call = tool_calls[0]
+        func_name = call["function"]["name"]
+        params = call["function"].get("arguments", {})
+        print(f"[Telegram] Tool call: {func_name}({params})")
+
+        if func_name == "passthrough":
+            return self._call_llm(conversation_messages)
+
+        result = function_executor.execute(func_name, params)
+        success = result.get("success", False)
+        result_msg = result.get("message", "")
+
+        # Inject result context into the last user message so Qwen can confirm naturally
+        followup = list(conversation_messages)
+        hint = f"[Résultat: {'succès' if success else 'échec'}. {result_msg}]"
+        followup[-1] = {"role": "user", "content": f"{text}\n{hint}\nRéponds en français de façon naturelle et concise."}
+        return self._call_llm(followup)
 
     def _call_llm(self, messages: list) -> str:
         payload = {
