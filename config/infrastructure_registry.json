@@ -1,0 +1,27 @@
+{
+  "_comment": "Registre des hôtes de l'infrastructure ADA. Non utilisé activement en v1 — structure pour la v2.",
+  "hosts": [
+    {
+      "id": "ubuntu_bureau",
+      "name": "Ubuntu Bureau",
+      "ip": "192.168.1.70",
+      "roles": ["ada", "docker", "ollama", "n8n", "navidrome"]
+    },
+    {
+      "id": "nas",
+      "name": "NAS Synology",
+      "ip": "192.168.1.44",
+      "roles": ["storage", "music", "plex"]
+    },
+    {
+      "id": "proxmox",
+      "name": "Proxmox",
+      "ip": "192.168.1.166",
+      "roles": ["virtualization", "home_assistant"]
+    }
+  ],
+  "dependencies": [
+    {"service": "navidrome", "depends_on": ["docker", "nas"]},
+    {"service": "ada",       "depends_on": ["ollama", "n8n", "home_assistant"]}
+  ]
+}
