@@ -120,6 +120,92 @@ def _make_filter_row(labels: list[str]) -> tuple[QHBoxLayout, dict[str, QPushBut
 
 
 # ---------------------------------------------------------------------------
+# Entity card wrapper / restore helpers
+# ---------------------------------------------------------------------------
+
+class _EntityCardWrapper(QWidget):
+    """Wraps an entity card with a hide button overlaid in the top-right corner."""
+
+    def __init__(self, entity_id: str, card: QFrame, parent=None):
+        super().__init__(parent)
+        self.entity_id = entity_id
+        self._card = card
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(card)
+        self.setFixedSize(card.width(), card.height())
+
+        self._eye_btn = ToolButton(FIF.VIEW, self)
+        self._eye_btn.setFixedSize(24, 24)
+        self._eye_btn.setToolTip("Hide this entity")
+        self._eye_btn.clicked.connect(self._on_hide)
+        self._eye_btn.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._eye_btn.move(self.width() - 28, 6)
+
+    def _on_hide(self):
+        hidden = list(settings.get("home_assistant.hidden_entities", []))
+        if self.entity_id not in hidden:
+            hidden.append(self.entity_id)
+            settings.set("home_assistant.hidden_entities", hidden)
+        self.hide()
+
+
+class _HiddenCardRestore(QFrame):
+    """Shown in edit mode for a hidden entity — lets user restore it."""
+
+    def __init__(self, entity_id: str, entity_name: str, tab: "HomeAutomationTab", parent=None):
+        super().__init__(parent)
+        self._entity_id = entity_id
+        self._tab = tab
+        self.setFixedSize(300, 160)
+        self.setStyleSheet("""
+            _HiddenCardRestore {
+                background-color: #0d121d;
+                border: 1px dashed #2a3556;
+                border-radius: 20px;
+            }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setAlignment(Qt.AlignCenter)
+
+        icon_lbl = QLabel("\U0001f441")
+        icon_lbl.setStyleSheet("font-size: 24px; background: transparent;")
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon_lbl)
+
+        name_lbl = QLabel(entity_name)
+        name_lbl.setStyleSheet(
+            "color: #6e7a8e; font-size: 12px; background: transparent;"
+        )
+        name_lbl.setAlignment(Qt.AlignCenter)
+        name_lbl.setWordWrap(True)
+        layout.addWidget(name_lbl)
+
+        restore_btn = QPushButton("Restore")
+        restore_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #33b5e5; color: #0f1524;
+                border-radius: 8px; padding: 4px 12px;
+                font-weight: bold; border: none;
+            }
+            QPushButton:hover { background-color: #55caff; }
+        """)
+        restore_btn.clicked.connect(self._on_restore)
+        layout.addWidget(restore_btn, 0, Qt.AlignCenter)
+
+    def _on_restore(self):
+        hidden = list(settings.get("home_assistant.hidden_entities", []))
+        if self._entity_id in hidden:
+            hidden.remove(self._entity_id)
+            settings.set("home_assistant.hidden_entities", hidden)
+        self._tab._rebuild_grid()
+
+
+# ---------------------------------------------------------------------------
 # Main tab
 # ---------------------------------------------------------------------------
 
@@ -136,6 +222,7 @@ class HomeAutomationTab(QWidget):
         self._camera_cards: list = []
         self._fetch_thread: _UnifiedFetchThread | None = None
         self._destroyed = False
+        self._edit_mode = False
 
         self._filter_provider = "All"
         self._filter_type = "All"
@@ -242,6 +329,12 @@ class HomeAutomationTab(QWidget):
         refresh_btn.setToolTip("Refresh all providers")
         refresh_btn.clicked.connect(self._on_refresh)
         header.addWidget(refresh_btn)
+        header.addSpacing(10)
+
+        self._edit_btn = ToolButton(FIF.EDIT, self)
+        self._edit_btn.setToolTip("Toggle entity visibility editing")
+        self._edit_btn.clicked.connect(self._toggle_edit_mode)
+        header.addWidget(self._edit_btn)
         header.addSpacing(10)
 
         self._ha_badge = QLabel("●  Home Assistant")
@@ -370,28 +463,46 @@ class HomeAutomationTab(QWidget):
         from core.unified_entities import unified_entity_service
         from gui.components.entity_cards import entity_card_for
 
+        hidden_ids = set(settings.get("home_assistant.hidden_entities", []))
         filtered = [e for e in self._all_entities if self._matches_filters(e)]
 
-        if not filtered:
+        if self._edit_mode:
+            entities_to_show = self._all_entities
+        else:
+            entities_to_show = [e for e in filtered if e.id not in hidden_ids]
+
+        if not entities_to_show:
             self._show_grid_message("No devices match the selected filters.", "#6e7a8e")
             return
 
         row = col = 0
         new_camera_cards = []
-        for entity in filtered:
+        for entity in entities_to_show:
             if self._destroyed:
                 return
             try:
-                card = entity_card_for(entity, unified_entity_service, self._grid_widget)
-                self._grid_layout.addWidget(card, row, col)
-                if hasattr(card, "stop"):  # camera cards
-                    new_camera_cards.append(card)
-                col += 1
-                if col >= 3:
-                    col = 0
-                    row += 1
+                if entity.id in hidden_ids:
+                    widget = _HiddenCardRestore(
+                        entity.id, entity.name, self, self._grid_widget
+                    )
+                elif self._edit_mode:
+                    widget = entity_card_for(entity, unified_entity_service, self._grid_widget)
+                    if hasattr(widget, "stop"):
+                        new_camera_cards.append(widget)
+                else:
+                    raw_card = entity_card_for(entity, unified_entity_service, self._grid_widget)
+                    widget = _EntityCardWrapper(entity.id, raw_card, self._grid_widget)
+                    if hasattr(raw_card, "stop"):
+                        new_camera_cards.append(raw_card)
+
+                self._grid_layout.addWidget(widget, row, col)
             except Exception as ex:
                 print(f"[HomeAutomation] Card creation failed for {entity.id}: {ex}")
+
+            col += 1
+            if col >= 3:
+                col = 0
+                row += 1
 
         self._camera_cards = new_camera_cards
 
@@ -453,6 +564,11 @@ class HomeAutomationTab(QWidget):
         self._show_grid_message("⏳ Refreshing…", "#6e7a8e")
         self._start_badge_check()
         self._load_entities()
+
+    def _toggle_edit_mode(self):
+        self._edit_mode = not self._edit_mode
+        self._edit_btn.setIcon(FIF.CLOSE if self._edit_mode else FIF.EDIT)
+        self._rebuild_grid()
 
     def _on_language_changed(self, _lang: str = ""):
         pass  # Filter labels are not i18n-translated (matched against ADA type constants)
