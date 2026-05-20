@@ -323,7 +323,7 @@ class TelegramAdapter:
             prompt = text or "Décris ce que tu vois en détail en français."
 
             _hint_re = _re.compile(
-                r"\b(?:au|dans\s+le|dans\s+la|dans\s+l[''']?|le|la|du|caméra)\s+(\w+(?:\s+\w+)?)",
+                r"\b(?:au|dans\s+le|dans\s+la|dans\s+l[''']?|le|la|du|de\s+la|caméra)\s+(\w+(?:\s+\w+)?)",
                 _re.IGNORECASE,
             )
             m = _hint_re.search(text)
