@@ -14,7 +14,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QScrollArea, QGridLayout, QPushButton
+    QScrollArea, QGridLayout, QPushButton, QFrame
 )
 from qfluentwidgets import TitleLabel, BodyLabel, FluentIcon as FIF, ToolButton
 
@@ -164,33 +164,46 @@ class HomeAutomationTab(QWidget):
         # Header
         self._build_header(main)
 
-        # ── Provider filter row ──────────────────────────────────────────
-        provider_header = QLabel("Providers")
-        provider_header.setStyleSheet("color: #6e7a8e; font-size: 11px; font-weight: bold;")
-        main.addWidget(provider_header)
+        # ── Row 1: Provider (left) + separator + Type (right) ───────────
+        filter_row1 = QHBoxLayout()
+        filter_row1.setSpacing(16)
 
+        prov_col = QVBoxLayout()
+        prov_col.setSpacing(4)
+        prov_header = QLabel("Providers")
+        prov_header.setStyleSheet("color: #6e7a8e; font-size: 11px; font-weight: bold;")
+        prov_col.addWidget(prov_header)
         self._provider_row_layout = QHBoxLayout()
         self._provider_row_layout.setSpacing(8)
         self._provider_row_btns: dict[str, QPushButton] = {}
         self._provider_row_layout.addStretch()
-        main.addLayout(self._provider_row_layout)
+        prov_col.addLayout(self._provider_row_layout)
+        filter_row1.addLayout(prov_col, 1)
 
-        # ── Type filter row ──────────────────────────────────────────────
+        _sep = QFrame()
+        _sep.setFrameShape(QFrame.Shape.VLine)
+        _sep.setStyleSheet("background-color: #2a3556;")
+        _sep.setFixedWidth(1)
+        filter_row1.addWidget(_sep)
+
+        type_col = QVBoxLayout()
+        type_col.setSpacing(4)
         type_header = QLabel("Type")
         type_header.setStyleSheet("color: #6e7a8e; font-size: 11px; font-weight: bold;")
-        main.addWidget(type_header)
-
+        type_col.addWidget(type_header)
         type_labels = ["All"] + list(_TYPE_LABELS.values())
         type_row, self._type_btns = _make_filter_row(type_labels)
         for label, btn in self._type_btns.items():
             btn.clicked.connect(lambda _, l=label: self._on_type_filter(l))
-        main.addLayout(type_row)
+        type_col.addLayout(type_row)
+        filter_row1.addLayout(type_col, 1)
 
-        # ── Zone filter row ──────────────────────────────────────────────
+        main.addLayout(filter_row1)
+
+        # ── Row 2: Zone (full width) ─────────────────────────────────────
         zone_header = QLabel("Zone")
         zone_header.setStyleSheet("color: #6e7a8e; font-size: 11px; font-weight: bold;")
         main.addWidget(zone_header)
-
         zone_row, self._zone_btns = _make_filter_row(_FIXED_ZONES)
         for label, btn in self._zone_btns.items():
             btn.clicked.connect(lambda _, l=label: self._on_zone_filter(l))
