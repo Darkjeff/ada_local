@@ -95,19 +95,26 @@ class CameraManager:
         Fetch JPEG snapshot from HA and save to data/cache/snapshots/.
         Returns SnapshotResult with success=False on any failure.
         """
-        os.makedirs(_CACHE_DIR, exist_ok=True)
         jpg = ha_manager.get_camera_snapshot(entity_id)
         if jpg is None:
             return SnapshotResult(
                 success=False, entity_id=entity_id, path="",
                 error="Snapshot unavailable"
             )
-        safe = entity_id.replace(".", "_").replace("/", "_")
-        filename = f"{safe}_{int(time.time())}.jpg"
-        path = os.path.join(_CACHE_DIR, filename)
-        with open(path, "wb") as f:
-            f.write(jpg)
-        return SnapshotResult(success=True, entity_id=entity_id, path=path)
+        try:
+            os.makedirs(_CACHE_DIR, exist_ok=True)
+            safe = entity_id.replace(".", "_").replace("/", "_")
+            filename = f"{safe}_{int(time.time())}.jpg"
+            path = os.path.join(_CACHE_DIR, filename)
+            with open(path, "wb") as f:
+                f.write(jpg)
+            return SnapshotResult(success=True, entity_id=entity_id, path=path)
+        except OSError as e:
+            print(f"[CameraManager] Failed to write snapshot: {e}")
+            return SnapshotResult(
+                success=False, entity_id=entity_id, path="",
+                error=f"Failed to write snapshot: {e}"
+            )
 
 
 camera_manager = CameraManager()

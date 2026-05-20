@@ -115,10 +115,11 @@ def test_capture_snapshot_success(tmp_path):
         assert f.read() == jpg
 
 
-def test_capture_snapshot_failure():
+def test_capture_snapshot_failure(tmp_path):
     mgr = _make_manager()
     with patch("core.camera_manager.ha_manager") as mock_ha:
         mock_ha.get_camera_snapshot.return_value = None
-        result = mgr.capture_snapshot("camera.bureau")
+        with patch("core.camera_manager._CACHE_DIR", str(tmp_path)):
+            result = mgr.capture_snapshot("camera.bureau")
     assert result.success is False
     assert result.error == "Snapshot unavailable"
