@@ -73,6 +73,20 @@ class _HAProbeThread(QThread):
             self.done.emit([])
 
 
+class _HACameraProbeThread(QThread):
+    """Fetch HA camera endpoints in background."""
+    done = Signal(list)
+
+    def run(self) -> None:
+        try:
+            from core.camera_manager import camera_manager
+            camera_manager.refresh()
+            self.done.emit(camera_manager.list_endpoints())
+        except Exception as e:
+            print(f"[_HACameraProbeThread] {e}")
+            self.done.emit([])
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Custom SettingCard subclasses
 # ──────────────────────────────────────────────────────────────────────────────
@@ -369,6 +383,49 @@ class _IntentInfoCard(SettingCard):
         self._badge.setText(tr("senses.badge_intent_only"))
 
 
+class _HACameraCard(SettingCard):
+    """One card per HA camera: name, area badge, capability chips, test button."""
+
+    snapshot_requested = Signal(str)   # emits entity_id
+
+    def __init__(self, endpoint, parent=None):
+        from qfluentwidgets import PushButton
+        from PySide6.QtWidgets import QHBoxLayout
+        icon = FIF.VIDEO_CAMERA if hasattr(FIF, "VIDEO_CAMERA") else FIF.PHOTO
+        super().__init__(icon, endpoint.friendly_name, endpoint.area_name or "—", parent)
+        self._entity_id = endpoint.entity_id
+        self._offline = endpoint.state == "unavailable"
+
+        # Capability chips
+        chip_row = QWidget(self)
+        chip_layout = QHBoxLayout(chip_row)
+        chip_layout.setContentsMargins(0, 0, 0, 0)
+        chip_layout.setSpacing(6)
+
+        def chip(label: str, active: bool) -> QLabel:
+            lbl = QLabel(label)
+            color = "#00b4d8" if active else "#666"
+            lbl.setStyleSheet(f"color: {color}; font-size: 11px;")
+            return lbl
+
+        chip_layout.addWidget(chip(f"📸 {tr('senses.ha_camera_snapshot')}", True))
+        chip_layout.addWidget(chip(f"🎤 {tr('senses.ha_camera_audio')}", False))
+        chip_layout.addWidget(chip(f"🔊 {tr('senses.ha_camera_speaker')}", False))
+        chip_layout.addStretch()
+        self.hBoxLayout.addWidget(chip_row)
+
+        if self._offline:
+            badge = QLabel(tr("senses.ha_camera_offline"))
+            badge.setStyleSheet("color: #ff6b6b; font-size: 11px; font-weight: bold;")
+            self.hBoxLayout.addWidget(badge)
+
+        self._btn = PushButton(tr("senses.ha_camera_test"))
+        self._btn.setEnabled(not self._offline)
+        self._btn.clicked.connect(lambda: self.snapshot_requested.emit(self._entity_id))
+        self.hBoxLayout.addWidget(self._btn)
+        self.hBoxLayout.addSpacing(16)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main tab
 # ──────────────────────────────────────────────────────────────────────────────
@@ -389,6 +446,7 @@ class SensesTab(ScrollArea):
         self.setObjectName("sensesInterface")
         self._probe_thread: _DeviceProbeThread | None = None
         self._ha_probe_thread: _HAProbeThread | None = None
+        self._ha_camera_thread: _HACameraProbeThread | None = None
 
         # Central scroll container — mirrors settings.py structure so
         # qfluentwidgets theme engine applies the same card/background styles
@@ -406,6 +464,7 @@ class SensesTab(ScrollArea):
         self._build_ui()
         self._probe_devices()
         self._probe_ha_devices()
+        self._probe_ha_cameras()
         i18n.language_changed.connect(self.retranslate_ui)
 
     # ── UI construction ────────────────────────────────────────────────────
@@ -428,6 +487,10 @@ class SensesTab(ScrollArea):
         self.vision_group.addSettingCard(self.test_card)
 
         self._layout.addWidget(self.vision_group)
+
+        # ── HA Cameras ──────────────────────────────────────────────────────
+        self.ha_camera_group = SettingCardGroup(tr("senses.ha_cameras"), self._content)
+        self._layout.addWidget(self.ha_camera_group)
 
         # ── 2. Audio Input ─────────────────────────────────────────────────
         self.audio_group = SettingCardGroup(tr("senses.audio"), self._content)
@@ -565,6 +628,43 @@ class SensesTab(ScrollArea):
                 "enabled": True,
                 "entity_id": p["entity_id"],
             })
+
+    def _probe_ha_cameras(self) -> None:
+        if not settings.get("home_assistant.enabled", False):
+            return
+        self._ha_camera_thread = _HACameraProbeThread(self)
+        self._ha_camera_thread.done.connect(self._on_ha_cameras_ready)
+        self._ha_camera_thread.finished.connect(self._ha_camera_thread.deleteLater)
+        self._ha_camera_thread.start()
+
+    def _on_ha_cameras_ready(self, endpoints: list) -> None:
+        for ep in endpoints:
+            card = _HACameraCard(ep, self.ha_camera_group)
+            card.snapshot_requested.connect(self._on_test_ha_snapshot)
+            self.ha_camera_group.addSettingCard(card)
+
+    def _on_test_ha_snapshot(self, entity_id: str) -> None:
+        from qfluentwidgets import InfoBar, InfoBarPosition
+        from core.camera_manager import camera_manager
+        snap = camera_manager.capture_snapshot(entity_id)
+        if not snap.success:
+            InfoBar.warning(
+                title="Snapshot échoué",
+                content=snap.error,
+                orient=Qt.Horizontal, isClosable=True,
+                position=InfoBarPosition.TOP, duration=3000, parent=self.window()
+            )
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Snapshot — {entity_id}")
+        dialog.setMinimumSize(560, 420)
+        layout = QVBoxLayout(dialog)
+        img_label = QLabel()
+        from PySide6.QtGui import QPixmap
+        pixmap = QPixmap(snap.path)
+        img_label.setPixmap(pixmap.scaledToWidth(540, Qt.SmoothTransformation))
+        layout.addWidget(img_label)
+        dialog.exec()
 
     def _on_test_speech(self) -> None:
         """Send a test phrase to the currently configured speech output."""
