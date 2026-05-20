@@ -312,7 +312,7 @@ class TelegramAdapter:
         try:
             from core.camera_manager import camera_manager
             from core.vision import describe, describe_from_bytes
-            import re as _re
+            from core.voice_assistant import _extract_area_hint
 
             if not camera_manager.list_endpoints():
                 camera_manager.refresh()
@@ -322,12 +322,7 @@ class TelegramAdapter:
 
             prompt = text or "Décris ce que tu vois en détail en français."
 
-            _hint_re = _re.compile(
-                r"\b(?:au|dans\s+le|dans\s+la|dans\s+l[''']?|le|la|du|de\s+la|caméra)\s+(\w+(?:\s+\w+)?)",
-                _re.IGNORECASE,
-            )
-            m = _hint_re.search(text)
-            hint = m.group(1).strip() if m else ""
+            hint = _extract_area_hint(text)
 
             if not live:
                 result = describe(prompt=prompt)
