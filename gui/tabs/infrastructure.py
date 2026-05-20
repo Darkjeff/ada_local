@@ -19,6 +19,8 @@ from qfluentwidgets import PushButton, FluentIcon as FIF
 # Constants
 # ---------------------------------------------------------------------------
 
+from core.runtime_state import runtime_state
+
 WORKFLOWS_DIR = Path(__file__).parent.parent.parent / "workflows"
 
 # Known workflows: webhook-action → display metadata
@@ -42,61 +44,32 @@ class InfraWorker(QObject):
     updated = Signal(dict)
 
     def collect(self) -> None:
+        """Délègue à runtime_state puis construit le dict pour l'UI."""
+        runtime_state.refresh()
+        summary = runtime_state.get_infra_summary()
+        services = summary.get("services", {})
+
         result: dict = {
-            "n8n": None,
-            "ollama": None,
-            "docker_containers": [],
-            "workflows": [],
+            "ollama":            services.get("ollama",          {}).get("status") == "online",
+            "n8n":               services.get("n8n",             {}).get("status") == "online",
+            "home_assistant":    services.get("home_assistant",  {}).get("status"),
+            "navidrome":         services.get("navidrome",       {}).get("status"),
+            "docker_containers": summary.get("docker", {}).get("containers", []),
+            "workflows":         self._scan_workflows(),
         }
+        self.updated.emit(result)
 
-        # --- n8n health -------------------------------------------------
-        try:
-            from core.settings_store import settings as app_settings
-            n8n_url = (app_settings.get("n8n") or {}).get("url", "http://localhost:5678")
-            r = requests.get(f"{n8n_url.rstrip('/')}/healthz", timeout=2)
-            result["n8n"] = r.status_code == 200
-        except Exception:
-            result["n8n"] = False
-
-        # --- Ollama health ----------------------------------------------
-        try:
-            from config import OLLAMA_URL
-            r = requests.get(f"{OLLAMA_URL.rstrip('/')}/tags", timeout=2)
-            result["ollama"] = r.status_code == 200
-        except Exception:
-            result["ollama"] = False
-
-        # --- Docker containers -----------------------------------------
-        try:
-            out = subprocess.check_output(
-                ["docker", "ps", "--format", "{{.Names}}|{{.Status}}|{{.Image}}"],
-                timeout=5,
-                stderr=subprocess.DEVNULL,
-            )
-            for line in out.decode().strip().splitlines():
-                parts = line.split("|")
-                if len(parts) >= 2:
-                    result["docker_containers"].append({
-                        "name":   parts[0],
-                        "status": parts[1],
-                        "image":  parts[2] if len(parts) > 2 else "",
-                    })
-        except Exception:
-            pass
-
-        # --- Local workflow JSON files ---------------------------------
+    def _scan_workflows(self) -> list:
+        """Rescans les fichiers JSON de workflow (logique extraite de collect)."""
+        workflows = []
         if WORKFLOWS_DIR.exists():
             exported = {p.stem for p in WORKFLOWS_DIR.glob("*.json")}
             for action in _WORKFLOW_META:
-                result["workflows"].append({
-                    "action":   action,
-                    "exported": action in exported,
-                })
+                workflows.append({"action": action, "exported": action in exported})
         else:
             for action in _WORKFLOW_META:
-                result["workflows"].append({"action": action, "exported": False})
-
-        self.updated.emit(result)
+                workflows.append({"action": action, "exported": False})
+        return workflows
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +261,10 @@ class InfrastructureTab(QWidget):
         self._row_ollama = _StatusRow("Ollama")
         svc_lay.addWidget(self._row_n8n)
         svc_lay.addWidget(self._row_ollama)
+        self._row_navidrome = _StatusRow("Navidrome")
+        self._row_ha        = _StatusRow("Home Assistant")
+        svc_lay.addWidget(self._row_navidrome)
+        svc_lay.addWidget(self._row_ha)
         lay.addWidget(svc)
 
         # Docker card
@@ -335,6 +312,15 @@ class InfrastructureTab(QWidget):
         # Services
         self._row_n8n.set_status(data.get("n8n"))
         self._row_ollama.set_status(data.get("ollama"))
+        # Navidrome et HA retournent une string de statut, pas un bool
+        nav_status = data.get("navidrome")
+        self._row_navidrome.set_status(
+            True if nav_status == "online" else (False if nav_status == "offline" else None)
+        )
+        ha_status = data.get("home_assistant")
+        self._row_ha.set_status(
+            True if ha_status == "online" else (False if ha_status == "offline" else None)
+        )
 
         # Docker — rebuild rows
         self._clear_after_title(self._docker_lay)
