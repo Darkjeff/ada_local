@@ -622,6 +622,10 @@ class DashboardLoader(QThread):
             # Fetch Kasa devices
             devices = []
             try:
+                from core.settings_store import settings as _s
+                if not _s.get("kasa.enabled", True):
+                    print("[Dashboard] Kasa disabled — skipping discovery")
+                    raise StopIteration
                 print("[Dashboard] Starting Kasa device discovery...")
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
