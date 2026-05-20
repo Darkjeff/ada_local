@@ -621,21 +621,20 @@ class DashboardLoader(QThread):
             
             # Fetch Kasa devices
             devices = []
-            try:
-                from core.settings_store import settings as _s
-                if not _s.get("kasa.enabled", True):
-                    print("[Dashboard] Kasa disabled — skipping discovery")
-                    raise StopIteration
-                print("[Dashboard] Starting Kasa device discovery...")
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                devices_dict = loop.run_until_complete(kasa_manager.discover_devices())
-                loop.close()
-                # Convert dict to list for GUI
-                devices = list(devices_dict.values()) if isinstance(devices_dict, dict) else devices_dict
-                print(f"[Dashboard] Found {len(devices)} devices")
-            except Exception as e:
-                print(f"[Dashboard] Kasa discovery error: {e}")
+            from core.settings_store import settings as _s
+            if not _s.get("kasa.enabled", True):
+                print("[Dashboard] Kasa disabled — skipping discovery")
+            else:
+                try:
+                    print("[Dashboard] Starting Kasa device discovery...")
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    devices_dict = loop.run_until_complete(kasa_manager.discover_devices())
+                    loop.close()
+                    devices = list(devices_dict.values()) if isinstance(devices_dict, dict) else devices_dict
+                    print(f"[Dashboard] Found {len(devices)} devices")
+                except Exception as e:
+                    print(f"[Dashboard] Kasa discovery error: {e}")
             
             # Fetch today's calendar events
             today_str = datetime.now().strftime("%Y-%m-%d")
