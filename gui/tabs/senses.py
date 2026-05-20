@@ -644,27 +644,30 @@ class SensesTab(ScrollArea):
             self.ha_camera_group.addSettingCard(card)
 
     def _on_test_ha_snapshot(self, entity_id: str) -> None:
-        from qfluentwidgets import InfoBar, InfoBarPosition
-        from core.camera_manager import camera_manager
-        snap = camera_manager.capture_snapshot(entity_id)
-        if not snap.success:
-            InfoBar.warning(
-                title="Snapshot échoué",
-                content=snap.error,
-                orient=Qt.Horizontal, isClosable=True,
-                position=InfoBarPosition.TOP, duration=3000, parent=self.window()
-            )
-            return
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Snapshot — {entity_id}")
-        dialog.setMinimumSize(560, 420)
-        layout = QVBoxLayout(dialog)
-        img_label = QLabel()
-        from PySide6.QtGui import QPixmap
-        pixmap = QPixmap(snap.path)
-        img_label.setPixmap(pixmap.scaledToWidth(540, Qt.SmoothTransformation))
-        layout.addWidget(img_label)
-        dialog.exec()
+        try:
+            from qfluentwidgets import InfoBar, InfoBarPosition
+            from core.camera_manager import camera_manager
+            snap = camera_manager.capture_snapshot(entity_id)
+            if not snap.success:
+                InfoBar.warning(
+                    title="Snapshot échoué",
+                    content=snap.error,
+                    orient=Qt.Horizontal, isClosable=True,
+                    position=InfoBarPosition.TOP, duration=3000, parent=self.window()
+                )
+                return
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Snapshot — {entity_id}")
+            dialog.setMinimumSize(560, 420)
+            layout = QVBoxLayout(dialog)
+            img_label = QLabel()
+            from PySide6.QtGui import QPixmap
+            pixmap = QPixmap(snap.path)
+            img_label.setPixmap(pixmap.scaledToWidth(540, Qt.SmoothTransformation))
+            layout.addWidget(img_label)
+            dialog.exec()
+        except Exception as e:
+            print(f"[SensesTab] Snapshot error: {e}")
 
     def _on_test_speech(self) -> None:
         """Send a test phrase to the currently configured speech output."""
