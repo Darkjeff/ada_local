@@ -175,6 +175,10 @@ class FunctionExecutor:
         color = params.get("color")
 
         # --- HA priority: synchronous, returns early if HA handles the request ---
+        # Lazy-load entities on first call (they start empty until get_entities() is invoked)
+        if self.ha_manager and not self.ha_manager.entities:
+            self.ha_manager.get_entities()
+
         if (self.ha_manager
                 and self.ha_manager.is_connected
                 and self.ha_manager.entities):
