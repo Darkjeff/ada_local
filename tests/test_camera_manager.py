@@ -62,6 +62,25 @@ def test_find_by_area_partial():
     assert result.entity_id == "camera.bureau"
 
 
+def test_find_by_area_partial_bureau():
+    mgr = _make_manager()
+    bureau_endpoints = [
+        {
+            "entity_id": "camera.bureau",
+            "friendly_name": "camera bureau",
+            "area_id": "bureau_jeff",
+            "area_name": "Bureau Jeff",
+            "state": "idle",
+        }
+    ]
+    with patch("core.camera_manager.ha_manager") as mock_ha:
+        mock_ha.get_camera_endpoints.return_value = bureau_endpoints
+        mgr.refresh()
+    result = mgr.find_by_area("bur")
+    assert result is not None
+    assert result.entity_id == "camera.bureau"
+
+
 def test_find_by_area_no_match():
     mgr = _make_manager()
     with patch("core.camera_manager.ha_manager") as mock_ha:
@@ -102,4 +121,4 @@ def test_capture_snapshot_failure():
         mock_ha.get_camera_snapshot.return_value = None
         result = mgr.capture_snapshot("camera.bureau")
     assert result.success is False
-    assert result.error != ""
+    assert result.error == "Snapshot unavailable"
