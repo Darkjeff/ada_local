@@ -309,7 +309,7 @@ class TelegramAdapter:
         """Route through Ollama tool-calling, like voice_assistant._handle_function_call."""
         try:
             resp = requests.post(
-                f"{OLLAMA_URL}/api/chat",
+                f"{OLLAMA_URL}/chat",
                 json={
                     "model": RESPONDER_MODEL,
                     "messages": [
