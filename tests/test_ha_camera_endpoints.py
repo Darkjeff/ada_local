@@ -75,10 +75,19 @@ def test_get_camera_endpoints_no_area():
     assert len(result) == 1
     assert result[0]["area_id"] == ""
     assert result[0]["area_name"] == ""
+    assert result[0]["friendly_name"] == "camera entree"
+    assert result[0]["state"] == "idle"
 
 
 def test_get_camera_endpoints_ha_unreachable():
     mgr = _make_manager()
     with patch("core.ha_control.requests.get", side_effect=Exception("timeout")):
         result = mgr.get_camera_endpoints()
+    assert result == []
+
+
+def test_get_camera_endpoints_not_configured():
+    mgr = _make_manager()
+    mgr._url = ""
+    result = mgr.get_camera_endpoints()
     assert result == []

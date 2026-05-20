@@ -169,6 +169,8 @@ class HAManager:
                     eid = item.get("entity_id", "")
                     if eid.startswith("camera."):
                         er_map[eid] = item.get("area_id") or ""
+            else:
+                print(f"[HAManager] entity_registry HTTP {er_resp.status_code}")
 
             # 2. Area registry: area_id → name
             ar_resp = requests.get(
@@ -179,7 +181,12 @@ class HAManager:
             area_names: dict[str, str] = {}
             if ar_resp.status_code == 200:
                 for item in ar_resp.json():
-                    area_names[item["area_id"]] = item["name"]
+                    aid = item.get("area_id", "")
+                    name = item.get("name", "")
+                    if aid:
+                        area_names[aid] = name
+            else:
+                print(f"[HAManager] area_registry HTTP {ar_resp.status_code}")
 
             # 3. States: friendly_name + state
             states = self._fetch_all_states()
