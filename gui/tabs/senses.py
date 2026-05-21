@@ -647,8 +647,11 @@ class SensesTab(ScrollArea):
             card.setParent(None)
             card.deleteLater()
         self._camera_cards.clear()
-        if self._ha_camera_thread and self._ha_camera_thread.isRunning():
-            return
+        try:
+            if self._ha_camera_thread and self._ha_camera_thread.isRunning():
+                return
+        except RuntimeError:
+            self._ha_camera_thread = None
         self._ha_camera_thread = _HACameraProbeThread(self)
         self._ha_camera_thread.done.connect(self._on_ha_cameras_ready)
         self._ha_camera_thread.finished.connect(self._ha_camera_thread.deleteLater)
