@@ -333,7 +333,7 @@ class TelegramAdapter:
                 lang_instr = ai_lang_instruction()
             except Exception:
                 lang_instr = "Réponds en français. Sois concis et précis."
-            prompt = f"{text}. {lang_instr}" if text else f"Décris ce que tu vois en détail. {lang_instr}"
+            prompt = f"Décris précisément tout ce que tu vois dans cette image. {lang_instr}"
 
             hint = _extract_area_hint(text)
 

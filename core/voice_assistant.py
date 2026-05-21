@@ -286,7 +286,7 @@ class VoiceAssistant(QObject):
                 lang_instr = ai_lang_instruction()
             except Exception:
                 lang_instr = "Réponds en français. Sois concis et précis."
-            prompt = f"{user_text}. {lang_instr}" if user_text else f"Décris ce que tu vois en détail. {lang_instr}"
+            prompt = f"Décris précisément tout ce que tu vois dans cette image. {lang_instr}"
             hint = _extract_area_hint(user_text)
 
             if not live:

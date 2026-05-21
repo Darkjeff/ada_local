@@ -447,6 +447,7 @@ class SensesTab(ScrollArea):
         self._probe_thread: _DeviceProbeThread | None = None
         self._ha_probe_thread: _HAProbeThread | None = None
         self._ha_camera_thread: _HACameraProbeThread | None = None
+        self._camera_cards: list = []
 
         # Central scroll container — mirrors settings.py structure so
         # qfluentwidgets theme engine applies the same card/background styles
@@ -490,6 +491,15 @@ class SensesTab(ScrollArea):
 
         # ── HA Cameras ──────────────────────────────────────────────────────
         self.ha_camera_group = SettingCardGroup(tr("senses.ha_cameras"), self._content)
+        self._ha_refresh_card = PushSettingCard(
+            text=tr("senses.ha_camera_refresh"),
+            icon=FIF.SYNC,
+            title=tr("senses.ha_cameras_desc"),
+            content="",
+            parent=self.ha_camera_group,
+        )
+        self._ha_refresh_card.clicked.connect(self._probe_ha_cameras)
+        self.ha_camera_group.addSettingCard(self._ha_refresh_card)
         self._layout.addWidget(self.ha_camera_group)
 
         # ── 2. Audio Input ─────────────────────────────────────────────────
@@ -632,6 +642,13 @@ class SensesTab(ScrollArea):
     def _probe_ha_cameras(self) -> None:
         if not settings.get("home_assistant.enabled", False):
             return
+        # Remove camera cards from previous probe run
+        for card in self._camera_cards:
+            card.setParent(None)
+            card.deleteLater()
+        self._camera_cards.clear()
+        if self._ha_camera_thread and self._ha_camera_thread.isRunning():
+            return
         self._ha_camera_thread = _HACameraProbeThread(self)
         self._ha_camera_thread.done.connect(self._on_ha_cameras_ready)
         self._ha_camera_thread.finished.connect(self._ha_camera_thread.deleteLater)
@@ -642,6 +659,7 @@ class SensesTab(ScrollArea):
             card = _HACameraCard(ep, self.ha_camera_group)
             card.snapshot_requested.connect(self._on_test_ha_snapshot)
             self.ha_camera_group.addSettingCard(card)
+            self._camera_cards.append(card)
 
     def _on_test_ha_snapshot(self, entity_id: str) -> None:
         try:
