@@ -148,59 +148,57 @@ class HAManager:
             if eid.split(".")[0] in CAMERA_DOMAINS
         }
 
+    def _get_entity_area(self, entity_id: str) -> tuple[str, str]:
+        """Return (area_id, area_name) for an entity via HA template API."""
+        try:
+            tmpl = (
+                f'{{{{ area_id("{entity_id}") | default("") }}}}'
+                f'|'
+                f'{{{{ area_name("{entity_id}") | default("") }}}}'
+            )
+            r = requests.post(
+                f"{self._url}/api/template",
+                headers=self._headers(),
+                json={"template": tmpl},
+                timeout=5,
+            )
+            if r.status_code == 200:
+                parts = r.text.strip().split("|", 1)
+                aid = parts[0].strip()
+                aid = "" if aid in ("None", "none") else aid
+                aname = parts[1].strip() if len(parts) > 1 else ""
+                aname = "" if aname in ("None", "none") else aname
+                return aid, aname
+        except Exception:
+            pass
+        return "", ""
+
     def get_camera_endpoints(self) -> list[dict]:
         """
         Returns camera.* entities with resolved area_name.
-        Joins HA entity registry + area registry + /api/states.
+        Uses /api/states for entity list and /api/template for area resolution.
         Returns [] if HA is unreachable or not configured.
         """
         if not self._url or not self._token:
             return []
         try:
-            # 1. Entity registry: entity_id → area_id (camera.* only)
-            er_resp = requests.get(
-                f"{self._url}/api/config/entity_registry/list",
-                headers=self._headers(),
-                timeout=5,
-            )
-            er_map: dict[str, str] = {}
-            if er_resp.status_code == 200:
-                for item in er_resp.json():
-                    eid = item.get("entity_id", "")
-                    if eid.startswith("camera."):
-                        er_map[eid] = item.get("area_id") or ""
-            else:
-                print(f"[HAManager] entity_registry HTTP {er_resp.status_code}")
-
-            # 2. Area registry: area_id → name
-            ar_resp = requests.get(
-                f"{self._url}/api/config/area_registry/list",
-                headers=self._headers(),
-                timeout=5,
-            )
-            area_names: dict[str, str] = {}
-            if ar_resp.status_code == 200:
-                for item in ar_resp.json():
-                    aid = item.get("area_id", "")
-                    name = item.get("name", "")
-                    if aid:
-                        area_names[aid] = name
-            else:
-                print(f"[HAManager] area_registry HTTP {ar_resp.status_code}")
-
-            # 3. States: friendly_name + state
             states = self._fetch_all_states()
+            cameras = {eid: info for eid, info in states.items() if eid.startswith("camera.")}
+            if not cameras:
+                print("[HAManager] No camera.* entities found in states")
+                return []
 
             result = []
-            for eid, area_id in er_map.items():
-                info = states.get(eid, {})
+            for eid, info in cameras.items():
                 friendly = info.get("attributes", {}).get("friendly_name", eid)
                 state = info.get("state", "unknown")
+                state = info.get("state", "unknown")
+                area_id, area_name = self._get_entity_area(eid)
                 result.append({
                     "entity_id": eid,
                     "friendly_name": friendly,
                     "area_id": area_id,
-                    "area_name": area_names.get(area_id, ""),
+                    "area_name": area_name,
                     "state": state,
                 })
             return result

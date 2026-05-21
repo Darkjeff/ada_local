@@ -12,64 +12,46 @@ def _make_manager():
     return m
 
 
+def _fake_post_area(area_id: str, area_name: str):
+    """Returns a mock for requests.post to /api/template returning area_id|area_name."""
+    def fake_post(url, **kw):
+        r = MagicMock()
+        r.status_code = 200
+        r.text = f"{area_id}|{area_name}"
+        return r
+    return fake_post
+
+
 def test_get_camera_endpoints_joins_areas():
     mgr = _make_manager()
-    entity_registry = [
-        {"entity_id": "camera.bureau", "area_id": "cafe_jeff"},
-        {"entity_id": "light.salon",   "area_id": "salon"},   # filtered out
-    ]
-    area_registry = [
-        {"area_id": "cafe_jeff", "name": "Café Jeff"},
-    ]
     states = {
         "camera.bureau": {
             "state": "idle",
             "attributes": {"friendly_name": "camera bureau"},
         }
     }
-
-    def fake_get(url, **kw):
-        r = MagicMock()
-        r.status_code = 200
-        if "entity_registry" in url:
-            r.json.return_value = entity_registry
-        elif "area_registry" in url:
-            r.json.return_value = area_registry
-        return r
-
-    with patch("core.ha_control.requests.get", side_effect=fake_get):
-        with patch.object(mgr, "_fetch_all_states", return_value=states):
+    with patch.object(mgr, "_fetch_all_states", return_value=states):
+        with patch("core.ha_control.requests.post", side_effect=_fake_post_area("cafe_jeff", "Café Jeff")):
             result = mgr.get_camera_endpoints()
 
     assert len(result) == 1
     assert result[0]["entity_id"] == "camera.bureau"
     assert result[0]["area_name"] == "Café Jeff"
+    assert result[0]["area_id"] == "cafe_jeff"
     assert result[0]["friendly_name"] == "camera bureau"
     assert result[0]["state"] == "idle"
 
 
 def test_get_camera_endpoints_no_area():
     mgr = _make_manager()
-    entity_registry = [{"entity_id": "camera.entree", "area_id": None}]
-    area_registry = []
     states = {
         "camera.entree": {
             "state": "idle",
             "attributes": {"friendly_name": "camera entree"},
         }
     }
-
-    def fake_get(url, **kw):
-        r = MagicMock()
-        r.status_code = 200
-        if "entity_registry" in url:
-            r.json.return_value = entity_registry
-        elif "area_registry" in url:
-            r.json.return_value = area_registry
-        return r
-
-    with patch("core.ha_control.requests.get", side_effect=fake_get):
-        with patch.object(mgr, "_fetch_all_states", return_value=states):
+    with patch.object(mgr, "_fetch_all_states", return_value=states):
+        with patch("core.ha_control.requests.post", side_effect=_fake_post_area("", "")):
             result = mgr.get_camera_endpoints()
 
     assert len(result) == 1
@@ -81,7 +63,7 @@ def test_get_camera_endpoints_no_area():
 
 def test_get_camera_endpoints_ha_unreachable():
     mgr = _make_manager()
-    with patch("core.ha_control.requests.get", side_effect=Exception("timeout")):
+    with patch.object(mgr, "_fetch_all_states", side_effect=Exception("timeout")):
         result = mgr.get_camera_endpoints()
     assert result == []
 
