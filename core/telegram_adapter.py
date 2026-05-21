@@ -384,8 +384,9 @@ class TelegramAdapter:
                     "tools": FUNCTIONS,
                     "stream": False,
                     "think": False,
+                    "keep_alive": "5m",
                 },
-                timeout=90,
+                timeout=150,
             )
             resp.raise_for_status()
             tool_calls = resp.json().get("message", {}).get("tool_calls", [])

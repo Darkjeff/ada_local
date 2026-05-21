@@ -229,8 +229,9 @@ class VoiceAssistant(QObject):
                     "tools": FUNCTIONS,
                     "stream": False,
                     "think": False,
+                    "keep_alive": "5m",
                 },
-                timeout=90,
+                timeout=150,
             )
             resp.raise_for_status()
             msg = resp.json().get("message", {})
