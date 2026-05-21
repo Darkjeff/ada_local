@@ -642,11 +642,6 @@ class SensesTab(ScrollArea):
     def _probe_ha_cameras(self) -> None:
         if not settings.get("home_assistant.enabled", False):
             return
-        # Remove camera cards from previous probe run
-        for card in self._camera_cards:
-            card.setParent(None)
-            card.deleteLater()
-        self._camera_cards.clear()
         try:
             if self._ha_camera_thread and self._ha_camera_thread.isRunning():
                 return
@@ -658,11 +653,23 @@ class SensesTab(ScrollArea):
         self._ha_camera_thread.start()
 
     def _on_ha_cameras_ready(self, endpoints: list) -> None:
+        old_cards = list(self._camera_cards)
+        self._camera_cards.clear()
+
         for ep in endpoints:
             card = _HACameraCard(ep, self.ha_camera_group)
             card.snapshot_requested.connect(self._on_test_ha_snapshot)
             self.ha_camera_group.addSettingCard(card)
             self._camera_cards.append(card)
+
+        # Remove old cards only after new ones are safely added to the layout,
+        # so that adjustSize() during addSettingCard never sees a deleted widget.
+        for card in old_cards:
+            try:
+                card.setParent(None)
+                card.deleteLater()
+            except RuntimeError:
+                pass
 
     def _on_test_ha_snapshot(self, entity_id: str) -> None:
         try:
