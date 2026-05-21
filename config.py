@@ -145,7 +145,67 @@ FUNCTIONS = [
                 "required": ["thinking"]
             }
         }
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_music",
+            "description": "Play music by genre or artist on the default media player. Use when the user wants to listen to music.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "genre": {
+                        "type": "string",
+                        "description": "Music genre, e.g. jazz, rock, classical, blues, electro",
+                    },
+                    "artist": {
+                        "type": "string",
+                        "description": "Artist name, e.g. Ween, Miles Davis, Pink Floyd",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "control_media",
+            "description": "Control media playback: pause, stop, or skip to next track.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["pause", "stop", "next"],
+                        "description": "Playback action to perform",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_volume",
+            "description": "Control the volume of the default media player.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["up", "down", "set"],
+                        "description": "up/down for relative change, set for absolute level",
+                    },
+                    "level": {
+                        "type": "number",
+                        "description": "Volume level 0-100, required when action is set",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 # --- Console Colors ---

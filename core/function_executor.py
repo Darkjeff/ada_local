@@ -26,6 +26,7 @@ _SHELL_BLOCKLIST = [
 _SHELL_BLOCKLIST_RE = [re.compile(p, re.IGNORECASE) for p in _SHELL_BLOCKLIST]
 
 from core.async_runner import run_async
+from core.settings_store import settings
 
 
 @dataclass
@@ -151,6 +152,12 @@ class FunctionExecutor:
                 return self._get_print_status()
             elif func_name == "control_printer":
                 return self._control_printer(params)
+            elif func_name == "play_music":
+                return self._play_music(params)
+            elif func_name == "control_media":
+                return self._control_media(params)
+            elif func_name == "set_volume":
+                return self._set_volume(params)
             else:
                 return {"success": False, "message": f"Unknown function: {func_name}", "data": None}
         except Exception as e:
@@ -797,6 +804,88 @@ class FunctionExecutor:
             }
         except Exception as e:
             return {"success": False, "message": f"Erreur d'exécution : {e}", "data": None}
+
+
+    def _play_music(self, params: dict) -> dict:
+        from core.music_manager import music_manager
+        from core.ha_control import ha_manager
+
+        entity_id = settings.get("music.default_player", "").strip()
+        if not entity_id:
+            return {
+                "success": False,
+                "message": "Aucun lecteur configuré. Configure le lecteur par défaut dans les paramètres musique.",
+                "data": None,
+            }
+
+        genre = params.get("genre", "").strip()
+        artist = params.get("artist", "").strip()
+
+        if genre:
+            songs = music_manager.get_songs_by_genre(genre)
+        elif artist:
+            songs = music_manager.get_songs_by_artist(artist)
+        else:
+            return {"success": False, "message": "Précise un genre ou un artiste.", "data": None}
+
+        if not songs:
+            label = genre or artist
+            return {"success": False, "message": f"Aucun morceau trouvé pour '{label}'.", "data": None}
+
+        song = songs[0]
+        url = music_manager.build_stream_url(song["id"])
+        ok = ha_manager.play_media(entity_id, url)
+
+        if ok:
+            title = song.get("title", "?")
+            artist_name = song.get("artist", "?")
+            return {"success": True, "message": f"Lecture de « {title} » — {artist_name}", "data": None}
+        return {"success": False, "message": "Impossible de lancer la lecture sur le lecteur.", "data": None}
+
+    def _control_media(self, params: dict) -> dict:
+        from core.ha_control import ha_manager
+
+        entity_id = settings.get("music.default_player", "").strip()
+        if not entity_id:
+            return {"success": False, "message": "Aucun lecteur configuré.", "data": None}
+
+        action = params.get("action", "")
+        if action == "pause":
+            ok = ha_manager.media_pause(entity_id)
+            msg = "Lecture en pause." if ok else "Impossible de mettre en pause."
+        elif action == "stop":
+            ok = ha_manager.media_stop(entity_id)
+            msg = "Lecture arrêtée." if ok else "Impossible d'arrêter la lecture."
+        elif action == "next":
+            ok = ha_manager.media_next_track(entity_id)
+            msg = "Morceau suivant." if ok else "Impossible de passer au morceau suivant."
+        else:
+            return {"success": False, "message": f"Action inconnue : {action}", "data": None}
+
+        return {"success": ok, "message": msg, "data": None}
+
+    def _set_volume(self, params: dict) -> dict:
+        from core.ha_control import ha_manager
+
+        entity_id = settings.get("music.default_player", "").strip()
+        if not entity_id:
+            return {"success": False, "message": "Aucun lecteur configuré.", "data": None}
+
+        action = params.get("action", "")
+        if action == "up":
+            ok = ha_manager.volume_up(entity_id)
+            msg = "Volume augmenté." if ok else "Impossible d'augmenter le volume."
+        elif action == "down":
+            ok = ha_manager.volume_down(entity_id)
+            msg = "Volume baissé." if ok else "Impossible de baisser le volume."
+        elif action == "set":
+            level = float(params.get("level", 50))
+            ok = ha_manager.volume_set(entity_id, level / 100)
+            msg = f"Volume réglé à {int(level)}%." if ok else "Impossible de régler le volume."
+        else:
+            return {"success": False, "message": f"Action inconnue : {action}", "data": None}
+
+        return {"success": ok, "message": msg, "data": None}
 
 
 # Global instance
