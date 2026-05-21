@@ -9,11 +9,14 @@ import requests
 from PySide6.QtCore import Qt, QUrl, QObject, Signal, QThread
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QSizePolicy, QLineEdit,
 )
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, FluentIcon as FIF, TitleLabel, BodyLabel,
+    SettingCardGroup, SettingCard,
 )
+from core.i18n import tr
+from core.settings_store import settings
 
 NAVIDROME_URL = "http://localhost:4533"
 # Navidrome REST API — no auth needed for /api/ping and /api/getArtists.view
@@ -119,6 +122,32 @@ class _StatCard(QFrame):
 
 
 # ---------------------------------------------------------------------------
+# Default player setting card
+# ---------------------------------------------------------------------------
+
+class _PlayerLineCard(SettingCard):
+    """Editable card for the default HA media_player entity_id."""
+
+    def __init__(self, parent=None):
+        super().__init__(
+            FIF.SPEAKERS,
+            tr("music.default_player"),
+            tr("music.default_player_desc"),
+            parent,
+        )
+        self._edit = QLineEdit(settings.get("music.default_player", ""), self)
+        self._edit.setPlaceholderText("media_player.chillout_area")
+        self._edit.setMinimumWidth(280)
+        self._edit.textChanged.connect(lambda v: settings.set("music.default_player", v.strip()))
+        self.hBoxLayout.addWidget(self._edit, 0, Qt.AlignRight)
+        self.hBoxLayout.addSpacing(16)
+
+    def retranslate(self):
+        self.titleLabel.setText(tr("music.default_player"))
+        self.contentLabel.setText(tr("music.default_player_desc"))
+
+
+# ---------------------------------------------------------------------------
 # Music tab
 # ---------------------------------------------------------------------------
 
@@ -189,6 +218,12 @@ class MusicTab(QWidget):
         hint = QLabel("💡 Identifiant par défaut : admin / (mot de passe créé à la 1ère connexion)")
         hint.setStyleSheet("color: #3a4a5a; font-size: 11px; padding-top: 10px;")
         root.addWidget(hint)
+
+        # Default HA media_player setting
+        self._player_group = SettingCardGroup(tr("music.default_player"), self)
+        self._player_card = _PlayerLineCard(self._player_group)
+        self._player_group.addSettingCard(self._player_card)
+        root.addWidget(self._player_group)
 
     # ── Actions ──────────────────────────────────────────────────────────────
 

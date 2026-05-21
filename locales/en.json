@@ -119,6 +119,10 @@
     "infrastructure": "Infrastructure",
     "settings": "Settings"
   },
+  "music": {
+    "default_player": "Default player",
+    "default_player_desc": "Home Assistant media_player entity ID (e.g. media_player.chillout_area)"
+  },
   "senses": {
     "vision": "Vision",
     "vision_camera": "Webcam",
