@@ -84,3 +84,21 @@ i18n = I18nEngine()
 def tr(key: str, **kwargs) -> str:
     """Global shorthand for i18n.get()."""
     return i18n.get(key, **kwargs)
+
+
+def ai_lang() -> str:
+    """
+    Returns the language code for AI responses ("fr" or "en"),
+    based on the app.language setting.
+    """
+    return i18n.language
+
+
+def ai_lang_instruction() -> str:
+    """
+    Returns a language directive to inject into LLM / vision prompts.
+    Adapts automatically when the user switches language in Settings.
+    """
+    if i18n.language == "en":
+        return "Respond in English. Be concise and precise."
+    return "Réponds en français. Sois concis et précis."

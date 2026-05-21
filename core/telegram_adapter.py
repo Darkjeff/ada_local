@@ -27,10 +27,17 @@ from core.semantic_router import get_route as semantic_route
 
 _API_BASE = "https://api.telegram.org/bot{token}"
 
-_SYSTEM_PROMPT = """\
-Tu es ADA, une assistante IA locale tournant sur l'ordinateur de Jeff. \
-Tu réponds toujours en français, de façon concise et directe. \
-Tu es accessible via Telegram — sois utile, précise et naturelle."""
+def _system_prompt() -> str:
+    try:
+        from core.i18n import ai_lang_instruction
+        lang_instr = ai_lang_instruction()
+    except Exception:
+        lang_instr = "Réponds en français. Sois concis et précis."
+    return (
+        f"Tu es ADA, une assistante IA locale tournant sur l'ordinateur de Jeff. "
+        f"{lang_instr} "
+        f"Tu es accessible via Telegram — sois utile, précise et naturelle."
+    )
 
 _HELP_TEXT = """\
 🤖 *ADA via Telegram*
@@ -241,7 +248,7 @@ class TelegramAdapter:
             history = self._histories.setdefault(chat_id, [])
 
         # Build messages list
-        messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": _system_prompt()}]
         messages += history[-20:]  # Last 20 turns max
 
         # Skill injection

@@ -15,10 +15,15 @@ from core.settings_store import settings
 # moondream times out at 180s in CPU mode; gemma4 is last resort (360s).
 _VISION_MODEL_FALLBACK = "llava-phi3"
 
-_DEFAULT_PROMPT = (
-    "Describe what you see in detail in French language. "
-    "Be concise and precise. Answer in French only."
-)
+def _default_prompt() -> str:
+    try:
+        from core.i18n import ai_lang_instruction
+        instr = ai_lang_instruction()
+    except Exception:
+        instr = "Réponds en français. Sois concis et précis."
+    return f"Décris ce que tu vois en détail. {instr}"
+
+_DEFAULT_PROMPT = ""  # kept for import compatibility — use _default_prompt() instead
 _VISION_MODEL_CASCADE = ["llava-phi3", "gemma4:latest", "moondream"]
 
 def _vision_model() -> str:
@@ -99,7 +104,7 @@ def _try_model(base: str, model: str, prompt: str, img_b64: str) -> Optional[str
 
 
 def describe(
-    prompt: str = _DEFAULT_PROMPT,
+    prompt: str = "",
     camera_index: int = 0,
     model: Optional[str] = None,
 ) -> dict:
@@ -113,6 +118,8 @@ def describe(
             "image_b64": str | None,   # JPEG as base64 (for UI preview)
         }
     """
+    if not prompt:
+        prompt = _default_prompt()
     jpg = capture_frame(camera_index)
     if jpg is None:
         return {"success": False, "description": "Impossible d'accéder à la webcam.", "image_b64": None}
@@ -135,7 +142,7 @@ def describe(
 
 def describe_from_bytes(
     jpg_bytes: bytes,
-    prompt: str = _DEFAULT_PROMPT,
+    prompt: str = "",
     model: Optional[str] = None,
 ) -> dict:
     """
@@ -149,6 +156,8 @@ def describe_from_bytes(
             "image_b64": str,   # JPEG as base64 (for UI preview)
         }
     """
+    if not prompt:
+        prompt = _default_prompt()
     img_b64 = base64.b64encode(jpg_bytes).decode("utf-8")
     base = OLLAMA_URL.rstrip("/")
     configured = model or _vision_model()
