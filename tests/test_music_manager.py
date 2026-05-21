@@ -1,4 +1,5 @@
 from unittest.mock import patch, MagicMock
+import requests
 from core.music_manager import MusicManager
 
 
@@ -82,7 +83,7 @@ def test_build_stream_url_contains_id_and_format():
 
 def test_get_returns_none_on_http_error():
     mgr = _make_manager()
-    with patch("core.music_manager.requests.get", side_effect=Exception("timeout")):
+    with patch("core.music_manager.requests.get", side_effect=requests.RequestException("timeout")):
         with patch("core.music_manager.settings") as s:
             s.get.side_effect = _settings_side_effect
             result = mgr.get_songs_by_genre("jazz")

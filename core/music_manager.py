@@ -31,10 +31,14 @@ class MusicManager:
                 timeout=10,
             )
             r.raise_for_status()
+        except requests.RequestException as e:
+            print(f"[MusicManager] {endpoint} request failed: {e}")
+            return None
+        try:
             data = r.json().get("subsonic-response", {})
             return data if data.get("status") == "ok" else None
-        except Exception as e:
-            print(f"[MusicManager] {endpoint} failed: {e}")
+        except ValueError as e:
+            print(f"[MusicManager] {endpoint} JSON parse failed: {e}")
             return None
 
     def get_songs_by_genre(self, genre: str, count: int = 20) -> list[dict]:
@@ -53,10 +57,11 @@ class MusicManager:
 
     def build_stream_url(self, song_id: str) -> str:
         """Return a direct HTTP stream URL for `song_id` (includes auth params, format=mp3)."""
+        from urllib.parse import urlencode
         base = self._base_url()
         auth = self._auth()
-        qs = "&".join(f"{k}={v}" for k, v in auth.items())
-        return f"{base}/rest/stream?id={song_id}&{qs}&format=mp3"
+        qs = urlencode({**auth, "id": song_id, "format": "mp3"})
+        return f"{base}/rest/stream?{qs}"
 
 
 music_manager = MusicManager()
