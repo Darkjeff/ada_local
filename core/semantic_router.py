@@ -124,6 +124,20 @@ _ROUTES: dict[str, list[str]] = {
         "ports ouverts", "connexions réseau", "netstat", "ipconfig", "ifconfig",
         "version de python", "version python", "version nodejs",
         "services windows", "services linux", "systemctl",
+        # Music playback
+        "joue de la musique", "joue du jazz", "joue du rock", "joue du classique",
+        "joue de la soul", "joue du blues", "joue de l'electro", "joue de la techno",
+        "mets de la musique", "lance de la musique", "joue un morceau",
+        "play music", "play some jazz", "play rock", "play classical",
+        # Artist
+        "joue un album de", "mets un album de", "play something by",
+        # Playback control
+        "stop la musique", "arrête la musique", "morceau suivant", "chanson suivante",
+        "stop the music", "next song", "skip",
+        # Volume
+        "monte le son", "baisse le son", "monte le volume", "baisse le volume",
+        "mets le son à", "volume plus fort", "volume moins fort",
+        "turn up the volume", "turn down the volume", "set the volume",
     ],
 
     "qwen_thinking": [
@@ -359,6 +373,19 @@ _FUNCTION_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_MUSIC_KEYWORDS = re.compile(
+    r"\b(joue[rzs]?\s+(du|de\s+la|de\s+l[''']?|un?\s+album|some|some\s+\w+)"
+    r"|mets\s+(du|de\s+la|de\s+l[''']?|la\s+musique)"
+    r"|lance\s+(du|de\s+la|la\s+musique)"
+    r"|stop\s+la\s+music\w*"
+    r"|arrête\s+la\s+music\w*"
+    r"|morceau\s+suivant|chanson\s+suivante"
+    r"|monte\s+le\s+(son|volume)|baisse\s+le\s+(son|volume)"
+    r"|volume\s+(plus\s+fort|moins\s+fort)"
+    r"|next\s+song|skip\s+track|play\s+music|play\s+some)\b",
+    re.IGNORECASE,
+)
+
 _VISION_KEYWORDS = re.compile(
     r"\b(regarde[rzs]?|observe[rzs]?|montre[\s-]moi|que\s+vois[\s-]tu|prends?\s+une?\s+photo"
     r"|capture\s+une?\s+image|utilise\s+la\s+cam[eé]ra|analyse\s+la\s+cam[eé]ra"
@@ -375,6 +402,9 @@ def get_route(prompt: str) -> str:
     # Vision guard first — "regarde le bureau" must not bleed into function_gemma
     if _VISION_KEYWORDS.search(prompt):
         return "vision"
+    # Fast keyword guard for music commands — beats embedding drift
+    if _MUSIC_KEYWORDS.search(prompt):
+        return "function_gemma"
     # Fast keyword guard for unambiguous light-control commands — beats embedding drift
     if _FUNCTION_KEYWORDS.search(prompt):
         return "function_gemma"
