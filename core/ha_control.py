@@ -347,6 +347,52 @@ class HAManager:
         svc_domain, svc_name = svc_path.split("/")
         return self.call_service(svc_domain, svc_name, entity_id)
 
+    def play_media(self, entity_id: str, url: str, media_type: str = "music") -> bool:
+        """POST /api/services/media_player/play_media — stream `url` on `entity_id`."""
+        if not self._url or not self._token:
+            return False
+        return self.call_service(
+            "media_player", "play_media", entity_id,
+            media_content_id=url,
+            media_content_type=media_type,
+        )
+
+    def media_pause(self, entity_id: str) -> bool:
+        """POST /api/services/media_player/media_pause."""
+        if not self._url or not self._token:
+            return False
+        return self.call_service("media_player", "media_pause", entity_id)
+
+    def media_stop(self, entity_id: str) -> bool:
+        """POST /api/services/media_player/media_stop."""
+        if not self._url or not self._token:
+            return False
+        return self.call_service("media_player", "media_stop", entity_id)
+
+    def media_next_track(self, entity_id: str) -> bool:
+        """POST /api/services/media_player/media_next_track."""
+        if not self._url or not self._token:
+            return False
+        return self.call_service("media_player", "media_next_track", entity_id)
+
+    def volume_set(self, entity_id: str, level: float) -> bool:
+        """POST /api/services/media_player/volume_set — `level` is 0.0 to 1.0."""
+        if not self._url or not self._token:
+            return False
+        return self.call_service("media_player", "volume_set", entity_id, volume_level=level)
+
+    def volume_up(self, entity_id: str) -> bool:
+        """POST /api/services/media_player/volume_up."""
+        if not self._url or not self._token:
+            return False
+        return self.call_service("media_player", "volume_up", entity_id)
+
+    def volume_down(self, entity_id: str) -> bool:
+        """POST /api/services/media_player/volume_down."""
+        if not self._url or not self._token:
+            return False
+        return self.call_service("media_player", "volume_down", entity_id)
+
 
 # Global singleton — same pattern as kasa_manager
 ha_manager = HAManager()
