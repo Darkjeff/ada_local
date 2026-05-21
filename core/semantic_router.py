@@ -359,12 +359,22 @@ _FUNCTION_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_VISION_KEYWORDS = re.compile(
+    r"\b(regarde[rzs]?|observe[rzs]?|montre[\s-]moi|que\s+vois[\s-]tu|prends?\s+une?\s+photo"
+    r"|capture\s+une?\s+image|utilise\s+la\s+cam[eé]ra|analyse\s+la\s+cam[eé]ra"
+    r"|qu['']\s*est[\s-]ce\s+que\s+tu\s+vois)\b",
+    re.IGNORECASE,
+)
+
 
 def get_route(prompt: str) -> str:
     """
     Route a prompt to one of the VALID_ROUTES.
     Public interface — identical signature to the previous keyword router.
     """
+    # Vision guard first — "regarde le bureau" must not bleed into function_gemma
+    if _VISION_KEYWORDS.search(prompt):
+        return "vision"
     # Fast keyword guard for unambiguous light-control commands — beats embedding drift
     if _FUNCTION_KEYWORDS.search(prompt):
         return "function_gemma"
