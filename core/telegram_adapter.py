@@ -427,7 +427,7 @@ class TelegramAdapter:
             r = requests.post(
                 f"{OLLAMA_URL}/chat",
                 json=payload,
-                timeout=120,
+                timeout=150,
             )
             r.raise_for_status()
             return r.json().get("message", {}).get("content", "").strip()
