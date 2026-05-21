@@ -91,3 +91,13 @@ def test_set_volume_set():
             result = ex.execute("set_volume", {"action": "set", "level": 60})
     assert result["success"] is True
     assert "60" in result["message"]
+
+
+def test_set_volume_down():
+    ex = _make_executor()
+    with patch("core.function_executor.settings") as s:
+        s.get.return_value = "media_player.chillout_area"
+        with patch("core.ha_control.ha_manager") as ha:
+            ha.volume_down.return_value = True
+            result = ex.execute("set_volume", {"action": "down"})
+    assert result["success"] is True
