@@ -652,25 +652,16 @@ class SensesTab(ScrollArea):
         self._ha_camera_thread.finished.connect(self._ha_camera_thread.deleteLater)
         self._ha_camera_thread.start()
 
-    def _remove_camera_card(self, card) -> None:
-        """Remove a camera card from ha_camera_group's ExpandLayout before deletion.
-
-        setParent(None) does NOT update qfluentwidgets ExpandLayout's internal
-        item list, leaving a stale C++ reference that crashes adjustSize().
-        takeAt() removes the item from the layout's tracking list directly.
-        """
-        try:
-            layout = self.ha_camera_group.cardLayout
-            for i in range(layout.count()):
-                item = layout.itemAt(i)
-                if item and item.widget() is card:
-                    layout.takeAt(i)
-                    break
-        except (RuntimeError, AttributeError):
-            pass
-
     def _on_ha_cameras_ready(self, endpoints: list) -> None:
-        old_cards = list(self._camera_cards)
+        # Hide old cards instead of deleting them: deleteLater() leaves a stale
+        # C++ pointer in ExpandLayout's internal item list, which crashes the next
+        # adjustSize() call at w.isHidden(). Hiding keeps the C++ object alive so
+        # isHidden() returns True safely and ExpandLayout skips the widget.
+        for card in self._camera_cards:
+            try:
+                card.hide()
+            except RuntimeError:
+                pass
         self._camera_cards.clear()
 
         for ep in endpoints:
@@ -678,16 +669,6 @@ class SensesTab(ScrollArea):
             card.snapshot_requested.connect(self._on_test_ha_snapshot)
             self.ha_camera_group.addSettingCard(card)
             self._camera_cards.append(card)
-
-        # Remove old cards after new ones are added: takeAt() removes from the
-        # ExpandLayout item list so future adjustSize() won't see deleted objects.
-        for card in old_cards:
-            self._remove_camera_card(card)
-            try:
-                card.setParent(None)
-                card.deleteLater()
-            except RuntimeError:
-                pass
 
     def _on_test_ha_snapshot(self, entity_id: str) -> None:
         try:
