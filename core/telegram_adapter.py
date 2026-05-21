@@ -328,7 +328,12 @@ class TelegramAdapter:
             endpoints = camera_manager.list_endpoints()
             live = [ep for ep in endpoints if ep.state != "unavailable"]
 
-            prompt = text or "Décris ce que tu vois en détail en français."
+            try:
+                from core.i18n import ai_lang_instruction
+                lang_instr = ai_lang_instruction()
+            except Exception:
+                lang_instr = "Réponds en français. Sois concis et précis."
+            prompt = f"{text}. {lang_instr}" if text else f"Décris ce que tu vois en détail. {lang_instr}"
 
             hint = _extract_area_hint(text)
 
