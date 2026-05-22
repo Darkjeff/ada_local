@@ -63,6 +63,7 @@ class CalibreManager:
         search_type: "title" | "author" | "tags" | "all" (ignored server-side, passed for logging).
         Returns up to `count` normalised book dicts. Returns [] on error or no match.
         """
+        print(f"[CalibreManager] search_books query={query!r} type={search_type} count={count}")
         data = self._get("/api/books", search=query, limit=count)
         if not data:
             return []

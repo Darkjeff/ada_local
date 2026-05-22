@@ -106,3 +106,13 @@ def test_search_books_missing_description():
             s.get.side_effect = _settings
             result = mgr.search_books("Test")
     assert result[0]["description"] == ""
+
+
+def test_search_books_no_authors():
+    mgr = _make_manager()
+    books = [{"id": 3, "title": "Anonymous", "authors": [], "pubdate": "2020", "formats": ["epub"], "description": ""}]
+    with patch("core.calibre_manager.requests.get", return_value=_mock_response({"books": books})):
+        with patch("core.calibre_manager.settings") as s:
+            s.get.side_effect = _settings
+            result = mgr.search_books("Anonymous")
+    assert result[0]["author"] == ""

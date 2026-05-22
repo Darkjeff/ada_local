@@ -89,6 +89,11 @@ DEFAULT_SETTINGS = {
         "user": "",
         "password": "",
     },
+    "calibre": {
+        "url": "",
+        "username": "",
+        "password": "",
+    },
 }
 
 
