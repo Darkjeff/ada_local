@@ -35,6 +35,7 @@ from gui.tabs.memory import MemoryTab
 from gui.tabs.senses import SensesTab
 from gui.tabs.infrastructure import InfrastructureTab
 from gui.tabs.music import MusicTab
+from gui.tabs.library import LibraryTab
 from gui.components.system_monitor import SystemMonitor
 from gui.components.voice_indicator import VoiceIndicator
 from core.llm import preload_models
@@ -229,6 +230,7 @@ class MainWindow(FluentWindow):
         self.senses_lazy = LazyTab(SensesTab, "sensesInterface")
         self.infra_lazy  = LazyTab(InfrastructureTab, "infrastructureInterface")
         self.music_lazy  = LazyTab(MusicTab, "musicInterface")
+        self.library_lazy = LazyTab(LibraryTab, "libraryInterface")
 
         self.addSubInterface(self.chat_lazy, FIF.CHAT, tr("nav.chat"))
         self.addSubInterface(self.planner_lazy, FIF.CALENDAR, tr("nav.planner"))
@@ -241,6 +243,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.memory_lazy, FIF.HISTORY, tr("nav.memory"))
         self.addSubInterface(self.senses_lazy, FIF.HEADPHONE, tr("nav.senses"))
         self.addSubInterface(self.music_lazy, FIF.MUSIC, tr("nav.music"))
+        self.addSubInterface(self.library_lazy, FIF.BOOK_SHELF, tr("nav.library"))
         self.addSubInterface(self.infra_lazy, FIF.IOT, tr("nav.infrastructure"))
 
         # Settings at bottom
