@@ -158,6 +158,8 @@ class FunctionExecutor:
                 return self._control_media(params)
             elif func_name == "set_volume":
                 return self._set_volume(params)
+            elif func_name == "search_book":
+                return self._search_book(params)
             else:
                 return {"success": False, "message": f"Unknown function: {func_name}", "data": None}
         except Exception as e:
@@ -886,6 +888,45 @@ class FunctionExecutor:
             return {"success": False, "message": f"Action inconnue : {action}", "data": None}
 
         return {"success": ok, "message": msg, "data": None}
+
+    def _search_book(self, params: Dict) -> Dict:
+        """Search the Calibre-Web library and return formatted book info."""
+        from core.calibre_manager import calibre_manager
+
+        query = params.get("query", "").strip()
+        search_type = params.get("search_type", "all")
+
+        if not query:
+            return {"success": False, "message": "Aucune recherche spécifiée.", "data": None}
+
+        books = calibre_manager.search_books(query, search_type, 3)
+
+        if not books:
+            return {
+                "success": False,
+                "message": f"Aucun livre trouvé pour « {query} ».",
+                "data": None,
+            }
+
+        lines = []
+        for b in books:
+            desc = b.get("description") or ""
+            if len(desc) > 200:
+                desc = desc[:200].rstrip() + "…"
+            year = f" ({b['year']})" if b.get("year") else ""
+            fmts = ", ".join(b.get("formats") or []) or "—"
+            dl = b.get("download_url") or "—"
+            block = (
+                f"« {b['title']} » — {b['author']}{year}\n"
+                f"Formats : {fmts}\n"
+            )
+            if desc:
+                block += f"{desc}\n"
+            block += f"Télécharger : {dl}"
+            lines.append(block)
+
+        message = "\n\n".join(lines)
+        return {"success": True, "message": message, "data": books}
 
 
 # Global instance
