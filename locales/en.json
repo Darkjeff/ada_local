@@ -116,12 +116,23 @@
     "memory": "Memory",
     "senses": "Senses",
     "music": "Music",
+    "library": "Library",
     "infrastructure": "Infrastructure",
     "settings": "Settings"
   },
   "music": {
     "default_player": "Default player",
     "default_player_desc": "Home Assistant media_player entity ID (e.g. media_player.chillout_area)"
+  },
+  "library": {
+    "title": "Library",
+    "calibre_group": "Calibre-Web",
+    "url": "Calibre-Web URL",
+    "url_desc": "Address of your Calibre-Web instance (e.g. http://192.168.1.70:8083)",
+    "username": "Username",
+    "username_desc": "Calibre-Web username",
+    "password": "Password",
+    "password_desc": "Calibre-Web password"
   },
   "senses": {
     "vision": "Vision",
