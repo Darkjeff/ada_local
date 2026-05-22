@@ -10,33 +10,64 @@ def _make_manager():
 
 def _settings(k, d=""):
     return {
-        "calibre.url": "http://localhost:8083",
+        "calibre.url":      "http://localhost:8083",
         "calibre.username": "jeff",
         "calibre.password": "pass",
     }.get(k, d)
 
 
-def _mock_response(json_data, status=200):
+# ── OPDS XML helpers ─────────────────────────────────────────────────────────
+
+def _entry_xml(title="Dune", author="Frank Herbert", year="1965",
+               book_id=1, epub=True, pdf=False, description="Epic sci-fi.") -> str:
+    links = ""
+    if epub:
+        links += (
+            f'<link rel="http://opds-spec.org/acquisition" '
+            f'type="application/epub+zip" href="/opds/download/{book_id}/epub/"/>'
+        )
+    if pdf:
+        links += (
+            f'<link rel="http://opds-spec.org/acquisition" '
+            f'type="application/pdf" href="/opds/download/{book_id}/pdf/"/>'
+        )
+    author_xml = f"<author><name>{author}</name></author>" if author else ""
+    return (
+        f"<entry>"
+        f"<title>{title}</title>"
+        f"<id>urn:uuid:test-{book_id}</id>"
+        f"{author_xml}"
+        f"<dc:date>{year}-01-01</dc:date>"
+        f"<summary>{description}</summary>"
+        f"{links}"
+        f"</entry>"
+    )
+
+
+def _make_feed(entries: str) -> bytes:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<feed xmlns="http://www.w3.org/2005/Atom"'
+        ' xmlns:dc="http://purl.org/dc/terms/">'
+        + entries +
+        "</feed>"
+    ).encode()
+
+
+def _mock_response(content: bytes, status: int = 200):
     r = MagicMock()
     r.raise_for_status = MagicMock()
-    r.json.return_value = json_data
+    r.content = content
     r.status_code = status
     return r
 
 
+# ── Tests ────────────────────────────────────────────────────────────────────
+
 def test_search_books_returns_results():
-    mgr = _make_manager()
-    books = [
-        {
-            "id": 1,
-            "title": "Dune",
-            "authors": [{"name": "Frank Herbert"}],
-            "pubdate": "1965-01-01",
-            "formats": ["epub", "pdf"],
-            "description": "A science fiction epic.",
-        }
-    ]
-    with patch("core.calibre_manager.requests.get", return_value=_mock_response({"books": books})):
+    mgr  = _make_manager()
+    feed = _make_feed(_entry_xml())
+    with patch("core.calibre_manager.requests.get", return_value=_mock_response(feed)):
         with patch("core.calibre_manager.settings") as s:
             s.get.side_effect = _settings
             result = mgr.search_books("Dune")
@@ -56,7 +87,8 @@ def test_search_books_no_url():
 
 def test_search_books_network_error():
     mgr = _make_manager()
-    with patch("core.calibre_manager.requests.get", side_effect=requests.RequestException("timeout")):
+    with patch("core.calibre_manager.requests.get",
+               side_effect=requests.RequestException("timeout")):
         with patch("core.calibre_manager.settings") as s:
             s.get.side_effect = _settings
             result = mgr.search_books("Dune")
@@ -64,8 +96,9 @@ def test_search_books_network_error():
 
 
 def test_search_books_empty_results():
-    mgr = _make_manager()
-    with patch("core.calibre_manager.requests.get", return_value=_mock_response({"books": []})):
+    mgr  = _make_manager()
+    feed = _make_feed("")  # no entries
+    with patch("core.calibre_manager.requests.get", return_value=_mock_response(feed)):
         with patch("core.calibre_manager.settings") as s:
             s.get.side_effect = _settings
             result = mgr.search_books("unknownbook99999")
@@ -99,9 +132,9 @@ def test_get_download_url_no_formats():
 
 
 def test_search_books_missing_description():
-    mgr = _make_manager()
-    books = [{"id": 2, "title": "Test", "authors": [{"name": "Auth"}], "pubdate": "", "formats": [], "description": None}]
-    with patch("core.calibre_manager.requests.get", return_value=_mock_response({"books": books})):
+    mgr  = _make_manager()
+    feed = _make_feed(_entry_xml(description=""))
+    with patch("core.calibre_manager.requests.get", return_value=_mock_response(feed)):
         with patch("core.calibre_manager.settings") as s:
             s.get.side_effect = _settings
             result = mgr.search_books("Test")
@@ -110,8 +143,18 @@ def test_search_books_missing_description():
 
 def test_search_books_no_authors():
     mgr = _make_manager()
-    books = [{"id": 3, "title": "Anonymous", "authors": [], "pubdate": "2020", "formats": ["epub"], "description": ""}]
-    with patch("core.calibre_manager.requests.get", return_value=_mock_response({"books": books})):
+    entry = (
+        "<entry>"
+        "<title>Anonymous</title>"
+        "<id>urn:uuid:test-3</id>"
+        "<dc:date>2020-01-01</dc:date>"
+        "<summary></summary>"
+        '<link rel="http://opds-spec.org/acquisition"'
+        ' type="application/epub+zip" href="/opds/download/3/epub/"/>'
+        "</entry>"
+    )
+    feed = _make_feed(entry)
+    with patch("core.calibre_manager.requests.get", return_value=_mock_response(feed)):
         with patch("core.calibre_manager.settings") as s:
             s.get.side_effect = _settings
             result = mgr.search_books("Anonymous")
