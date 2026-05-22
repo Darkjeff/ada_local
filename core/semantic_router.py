@@ -138,6 +138,15 @@ _ROUTES: dict[str, list[str]] = {
         "monte le son", "baisse le son", "monte le volume", "baisse le volume",
         "mets le son à", "volume plus fort", "volume moins fort",
         "turn up the volume", "turn down the volume", "set the volume",
+        # Book search
+        "cherche un livre", "trouve un livre", "tu as un livre",
+        "cherche dans ma bibliothèque", "dans ma bibliothèque",
+        "un livre de", "un livre sur", "un roman de",
+        "as-tu un livre", "est-ce que tu as un livre",
+        "trouve-moi un livre", "je cherche un livre",
+        "find a book", "search for a book", "do you have a book by",
+        "un livre de science-fiction", "un polar", "un roman historique",
+        "de la fantasy", "un essai sur", "un manga", "un bouquin",
     ],
 
     "qwen_thinking": [
@@ -386,6 +395,13 @@ _MUSIC_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_LIBRARY_KEYWORDS = re.compile(
+    r"\b(livre[sz]?|roman[sz]?|bouquin[sz]?|biblioth[eè]que"
+    r"|auteur[sz]?|epub|calibre"
+    r"|book[sz]?|library|novel[sz]?|ebook[sz]?)\b",
+    re.IGNORECASE,
+)
+
 _VISION_KEYWORDS = re.compile(
     r"\b(regarde[rzs]?|observe[rzs]?|montre[\s-]moi|que\s+vois[\s-]tu|prends?\s+une?\s+photo"
     r"|capture\s+une?\s+image|utilise\s+la\s+cam[eé]ra|analyse\s+la\s+cam[eé]ra"
@@ -404,6 +420,9 @@ def get_route(prompt: str) -> str:
         return "vision"
     # Fast keyword guard for music commands — beats embedding drift
     if _MUSIC_KEYWORDS.search(prompt):
+        return "function_gemma"
+    # Fast keyword guard for library/book commands — beats embedding drift
+    if _LIBRARY_KEYWORDS.search(prompt):
         return "function_gemma"
     # Fast keyword guard for unambiguous light-control commands — beats embedding drift
     if _FUNCTION_KEYWORDS.search(prompt):
