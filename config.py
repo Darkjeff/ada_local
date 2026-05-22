@@ -206,6 +206,28 @@ FUNCTIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_book",
+            "description": "Search for a book in the personal library by title, author, or genre/tag. Use when the user asks for a book, novel, or wants to find something to read.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search terms: title, author name, or genre/tag (e.g. 'Dune', 'Frank Herbert', 'science fiction')",
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["title", "author", "tags", "all"],
+                        "description": "Which field to search. Defaults to 'all'.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 # --- Console Colors ---
