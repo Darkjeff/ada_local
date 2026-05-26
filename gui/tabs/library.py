@@ -54,8 +54,8 @@ class CalibreWorker(QObject):
             if r.status_code == 200:
                 xml_root = ET.fromstring(r.content)
                 el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
-                print(f"[CalibreWorker] opensearch:totalResults el={el!r} "
-                      f"text={el.text!r if el is not None else 'N/A'}")
+                el_text = el.text if el is not None else "N/A"
+                print(f"[CalibreWorker] opensearch:totalResults el={el!r} text={el_text!r}")
                 if el is not None and el.text:
                     result["online"] = True
                     result["books"] = el.text.strip()
@@ -76,8 +76,8 @@ class CalibreWorker(QObject):
             if r.status_code == 200:
                 xml_root = ET.fromstring(r.content)
                 el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
-                print(f"[CalibreWorker] authors totalResults el={el!r} "
-                      f"text={el.text!r if el is not None else 'N/A'}")
+                el_text = el.text if el is not None else "N/A"
+                print(f"[CalibreWorker] authors totalResults el={el!r} text={el_text!r}")
                 if el is not None and el.text:
                     result["online"] = True
                     result["authors"] = el.text.strip()
