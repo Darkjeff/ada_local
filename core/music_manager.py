@@ -13,7 +13,7 @@ class MusicManager:
 
     def _auth(self) -> dict:
         return {
-            "u": settings.get("navidrome.username", ""),
+            "u": settings.get("navidrome.user", ""),
             "p": settings.get("navidrome.password", ""),
             "v": "1.16.1",
             "c": "ada",

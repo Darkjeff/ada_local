@@ -1,5 +1,6 @@
 """Minimal HTTP server that serves a single M3U playlist file."""
 
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -50,6 +51,7 @@ class PlaylistServer:
                 self._server = None
 
             server = HTTPServer(("0.0.0.0", port), _M3UHandler)
+            server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.timeout = 1.0
             self._server = server
 
