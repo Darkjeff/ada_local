@@ -80,13 +80,11 @@ class CalibreWorker(QObject):
                 csrf = m.group(1) or m.group(2) or ""
             print(f"[CalibreWorker] csrf={csrf[:20]!r}...")
 
-            # 2. POST /login — inclure next=/ pour éviter la redirection vers dbconfig
-            # Sans next=, Calibre-Web redirige les admins vers /admin/dbconfig.
+            # 2. POST /login
             r = session.post(
                 f"{base}/login",
                 data={"username": user, "password": password,
-                      "remember_me": "1", "csrf_token": csrf,
-                      "next": "/"},
+                      "remember_me": "1", "csrf_token": csrf},
                 allow_redirects=True,
                 timeout=5,
             )
@@ -94,55 +92,63 @@ class CalibreWorker(QObject):
 
             if "/login" in r.url:
                 print("[CalibreWorker] Login failed — still on login page")
-            elif "dbconfig" in r.url:
-                print("[CalibreWorker] Landed on dbconfig — retrying with ?next=/ in URL")
-                # Fallback : GET /login?next=/ puis re-POST
-                r2 = session.get(f"{base}/login?next=%2F", timeout=5)
-                csrf2 = ""
-                m2 = re.search(
-                    r'name="csrf_token"[^>]*value="([^"]+)"|value="([^"]+)"[^>]*name="csrf_token"',
-                    r2.text,
-                )
-                if m2:
-                    csrf2 = m2.group(1) or m2.group(2) or ""
+                raise RuntimeError("login failed")
+
+            # 3. Si on atterrit sur dbconfig, on re-soumet le formulaire avec ses
+            #    valeurs actuelles (= cliquer "Enregistrer" sans rien changer).
+            #    Calibre-Web force cette page pour les admins tant que la session
+            #    n'a pas "validé" la configuration.
+            if "dbconfig" in r.url:
+                print("[CalibreWorker] On dbconfig — auto-submitting form to unblock session")
+                # Extraire TOUS les champs input/select du formulaire dbconfig
+                form_data: dict = {}
+                for m2 in re.finditer(
+                    r'<input[^>]+name=["\']([^"\']+)["\'][^>]*(?:value=["\']([^"\']*)["\'])?',
+                    r.text, re.I,
+                ):
+                    form_data[m2.group(1)] = m2.group(2) or ""
+                # Champs select : valeur de l'option selected
+                for m2 in re.finditer(
+                    r'<select[^>]+name=["\']([^"\']+)["\'].*?<option[^>]+selected[^>]*value=["\']([^"\']*)["\']',
+                    r.text, re.I | re.S,
+                ):
+                    form_data[m2.group(1)] = m2.group(2)
+
+                print(f"[CalibreWorker] dbconfig fields: {list(form_data.keys())}")
                 r = session.post(
-                    f"{base}/login",
-                    data={"username": user, "password": password,
-                          "remember_me": "1", "csrf_token": csrf2,
-                          "next": "/"},
-                    params={"next": "/"},
+                    f"{base}/admin/dbconfig",
+                    data=form_data,
                     allow_redirects=True,
                     timeout=5,
                 )
-                print(f"[CalibreWorker] Retry POST /login → {r.status_code} url={r.url}")
+                print(f"[CalibreWorker] dbconfig submit → {r.status_code} url={r.url}")
 
-            if "/login" not in r.url and "dbconfig" not in r.url:
-                result["online"] = True
+            result["online"] = True
 
-                # 3. GET /stats (route réelle dans Calibre-Web, admin requis)
-                for stats_url in (f"{base}/stats", f"{base}/admin/stats"):
-                    r = session.get(stats_url, timeout=5)
-                    print(f"[CalibreWorker] GET {stats_url} → {r.status_code} (final url={r.url})")
-                    if r.status_code != 200 or "dbconfig" in r.url:
-                        continue
+            # 4. GET /stats
+            for stats_url in (f"{base}/stats", f"{base}/admin/stats"):
+                r = session.get(stats_url, timeout=5)
+                print(f"[CalibreWorker] GET {stats_url} → {r.status_code} (url={r.url})")
+                if r.status_code != 200 or "dbconfig" in r.url or "login" in r.url:
+                    continue
 
-                    snippet = r.text[:600].replace("\n", " ").replace("  ", " ")
-                    print(f"[CalibreWorker] HTML snippet: {snippet!r}")
+                snippet = r.text[:600].replace("\n", " ").replace("  ", " ")
+                print(f"[CalibreWorker] HTML snippet: {snippet!r}")
 
-                    # Tous les tags numériques possibles
-                    counts = re.findall(
-                        r"<(?:td|span|div|h[1-4]|strong|b|p)[^>]*>\s*(\d[\d\s]{0,5})\s*</(?:td|span|div|h[1-4]|strong|b|p)>",
-                        r.text,
-                    )
-                    counts = [c.strip().replace(" ", "") for c in counts
-                              if c.strip().replace(" ", "").isdigit()
-                              and int(c.strip().replace(" ", "")) > 0]
-                    print(f"[CalibreWorker] numeric elements: {counts[:10]}")
-                    if len(counts) >= 2:
-                        result["books"]   = counts[0]
-                        result["authors"] = counts[1]
-                        print(f"[CalibreWorker] books={result['books']} authors={result['authors']}")
-                        break
+                counts = re.findall(
+                    r"<(?:td|span|div|h[1-4]|strong|b|p)[^>]*>\s*(\d[\d\s]{0,5})\s*"
+                    r"</(?:td|span|div|h[1-4]|strong|b|p)>",
+                    r.text,
+                )
+                counts = [c.strip().replace(" ", "") for c in counts
+                          if c.strip().replace(" ", "").isdigit()
+                          and int(c.strip().replace(" ", "")) > 0]
+                print(f"[CalibreWorker] numeric elements: {counts[:10]}")
+                if len(counts) >= 2:
+                    result["books"]   = counts[0]
+                    result["authors"] = counts[1]
+                    print(f"[CalibreWorker] books={result['books']} authors={result['authors']}")
+                    break
 
         except Exception as exc:
             print(f"[CalibreWorker] session exception: {exc}")
