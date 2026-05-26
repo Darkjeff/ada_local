@@ -150,17 +150,26 @@ FUNCTIONS = [
         "type": "function",
         "function": {
             "name": "play_music",
-            "description": "Play music by genre or artist on the default media player. Use when the user wants to listen to music.",
+            "description": (
+                "Play music by genre or artist on a media player in a room. "
+                "Use whenever the user wants to listen to music. "
+                "Examples: 'lance du jazz dans le salon', 'joue du rock', "
+                "'mets de la soul dans la cuisine', 'play some jazz in the living room'."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "genre": {
                         "type": "string",
-                        "description": "Music genre, e.g. jazz, rock, classical, blues, electro",
+                        "description": "Music genre, e.g. jazz, rock, classical, blues, electro, soul, techno",
                     },
                     "artist": {
                         "type": "string",
                         "description": "Artist name, e.g. Ween, Miles Davis, Pink Floyd",
+                    },
+                    "room": {
+                        "type": "string",
+                        "description": "Room or zone where to play music, e.g. salon, cuisine, chambre, bureau",
                     },
                 },
             },

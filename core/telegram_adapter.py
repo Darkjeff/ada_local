@@ -376,7 +376,19 @@ class TelegramAdapter:
                             "content": (
                                 "You are a function dispatcher. You MUST call one of the available tools. "
                                 "NEVER respond with plain text. "
-                                "For greetings or conversational questions: call passthrough."
+                                "Tool selection rules:\n"
+                                "- play_music: for ANY music request "
+                                "(lance du jazz, joue du rock, mets de la musique, play some jazz). "
+                                "Extract genre (jazz/rock/soul/...) and room (salon/cuisine/...) if mentioned.\n"
+                                "- control_light: for lights (allume/éteins la lumière, turn on/off lights).\n"
+                                "- set_timer: for timers (minuterie, timer, dans X minutes).\n"
+                                "- web_search: for internet searches.\n"
+                                "- passthrough: ONLY for greetings, chitchat, or questions needing no action.\n"
+                                "Examples:\n"
+                                "- 'lance du jazz dans le salon' → play_music(genre='jazz', room='salon')\n"
+                                "- 'joue du rock' → play_music(genre='rock')\n"
+                                "- 'mets de la soul dans la cuisine' → play_music(genre='soul', room='cuisine')\n"
+                                "- 'allume la lumière' → control_light(action='on', room='all')"
                             ),
                         },
                         {"role": "user", "content": text},
