@@ -53,16 +53,20 @@ class CalibreWorker(QObject):
             print(f"[CalibreWorker] GET {url} → {r.status_code}")
             if r.status_code == 200:
                 xml_root = ET.fromstring(r.content)
-                el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
+                # All direct-child tags
+                tags = [child.tag for child in xml_root]
+                print(f"[CalibreWorker] /opds/new direct children ({len(tags)}): {tags}")
+                # Search totalResults anywhere in the tree
+                all_tr = list(xml_root.iter(f"{{{_OPENSEARCH}}}totalResults"))
+                print(f"[CalibreWorker] totalResults anywhere (opensearch ns): {all_tr}")
+                # Also dump first 400 chars of raw XML to see actual namespaces
+                print(f"[CalibreWorker] raw XML[:400]: {r.text[:400]!r}")
+                el = all_tr[0] if all_tr else None
                 el_text = el.text if el is not None else "N/A"
-                print(f"[CalibreWorker] opensearch:totalResults el={el!r} text={el_text!r}")
+                print(f"[CalibreWorker] el={el!r} text={el_text!r}")
                 if el is not None and el.text:
                     result["online"] = True
                     result["books"] = el.text.strip()
-                else:
-                    # Dump tag list to see what's actually in the feed
-                    tags = [child.tag for child in xml_root]
-                    print(f"[CalibreWorker] /opds/new root children: {tags[:10]}")
             else:
                 print(f"[CalibreWorker] /opds/new body: {r.text[:200]!r}")
         except Exception as exc:
