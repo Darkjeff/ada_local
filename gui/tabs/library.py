@@ -36,59 +36,73 @@ class CalibreWorker(QObject):
     def fetch(self) -> None:
         result = {"online": False, "books": "—", "authors": "—"}
         base = settings.get("calibre.url", "").rstrip("/")
-        auth = (
-            settings.get("calibre.username", ""),
-            settings.get("calibre.password", ""),
-        )
+        user = settings.get("calibre.username", "")
+        auth = (user, settings.get("calibre.password", ""))
+
+        print(f"[CalibreWorker] base={base!r} user={user!r}")
 
         if not base:
+            print("[CalibreWorker] No base URL configured — aborting")
             self.done.emit(result)
             return
 
-        # Book count — /opds/new includes opensearch:totalResults = total library size
-        # (OPDS uses HTTP Basic Auth, unlike the web UI which uses cookie sessions)
+        # ── Book count via /opds/new ──────────────────────────────────────
         try:
-            r = requests.get(
-                f"{base}/opds/new",
-                params={"offset": 0},
-                auth=auth,
-                timeout=5,
-            )
+            url = f"{base}/opds/new"
+            r = requests.get(url, params={"offset": 0}, auth=auth, timeout=5)
+            print(f"[CalibreWorker] GET {url} → {r.status_code}")
             if r.status_code == 200:
                 xml_root = ET.fromstring(r.content)
                 el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
+                print(f"[CalibreWorker] opensearch:totalResults el={el!r} "
+                      f"text={el.text!r if el is not None else 'N/A'}")
                 if el is not None and el.text:
                     result["online"] = True
                     result["books"] = el.text.strip()
-        except Exception:
-            pass
+                else:
+                    # Dump tag list to see what's actually in the feed
+                    tags = [child.tag for child in xml_root]
+                    print(f"[CalibreWorker] /opds/new root children: {tags[:10]}")
+            else:
+                print(f"[CalibreWorker] /opds/new body: {r.text[:200]!r}")
+        except Exception as exc:
+            print(f"[CalibreWorker] /opds/new exception: {exc}")
 
-        # Author count — /opds/authors, prefer opensearch:totalResults
+        # ── Author count via /opds/authors ────────────────────────────────
         try:
-            r = requests.get(f"{base}/opds/authors", auth=auth, timeout=5)
+            url = f"{base}/opds/authors"
+            r = requests.get(url, auth=auth, timeout=5)
+            print(f"[CalibreWorker] GET {url} → {r.status_code}")
             if r.status_code == 200:
                 xml_root = ET.fromstring(r.content)
                 el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
+                print(f"[CalibreWorker] authors totalResults el={el!r} "
+                      f"text={el.text!r if el is not None else 'N/A'}")
                 if el is not None and el.text:
                     result["online"] = True
                     result["authors"] = el.text.strip()
                 else:
-                    # Fallback: count <entry> elements on first page
                     entries = xml_root.findall(f"{{{_ATOM}}}entry")
+                    print(f"[CalibreWorker] authors entry count on page: {len(entries)}")
                     if entries:
                         result["online"] = True
                         result["authors"] = str(len(entries)) + "+"
-        except Exception:
-            pass
+            else:
+                print(f"[CalibreWorker] /opds/authors body: {r.text[:200]!r}")
+        except Exception as exc:
+            print(f"[CalibreWorker] /opds/authors exception: {exc}")
 
-        # Last-resort online check (plain OPDS root ping)
+        # ── Fallback ping ─────────────────────────────────────────────────
         if not result["online"]:
             try:
-                r = requests.get(f"{base}/opds/", auth=auth, timeout=5)
+                url = f"{base}/opds/"
+                r = requests.get(url, auth=auth, timeout=5)
+                print(f"[CalibreWorker] GET {url} (fallback) → {r.status_code}")
                 result["online"] = r.status_code in (200, 302)
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[CalibreWorker] /opds/ fallback exception: {exc}")
 
+        print(f"[CalibreWorker] final result: {result}")
         self.done.emit(result)
 
 
