@@ -34,132 +34,78 @@ class CalibreWorker(QObject):
     done = Signal(dict)
 
     def fetch(self) -> None:
+        import re
         result = {"online": False, "books": "—", "authors": "—"}
         base = settings.get("calibre.url", "").rstrip("/")
-        auth = (
-            settings.get("calibre.username", ""),
-            settings.get("calibre.password", ""),
-        )
+        user = settings.get("calibre.username", "")
+        password = settings.get("calibre.password", "")
 
         if not base:
             self.done.emit(result)
             return
 
-        # ── Try Calibre Content Server JSON API first ─────────────────────
-        # /ajax/search returns {"total": N, "book_ids": [...]} — clean and fast.
-        # Works on both Calibre's built-in server and some Calibre-Web configs.
+        # ── Web session: login → scrape /stats ────────────────────────────
+        # Calibre-Web has no stats API. The /stats page has exact counts.
+        # We need a session cookie — Basic Auth won't work on web endpoints.
         try:
-            r = requests.get(
-                f"{base}/ajax/search",
-                params={"query": "", "num": 0, "offset": 0, "sort": "title"},
-                auth=auth,
+            session = requests.Session()
+
+            # 1. Fetch login page to grab CSRF token
+            r = session.get(f"{base}/login", timeout=5)
+            print(f"[CalibreWorker] GET /login → {r.status_code}")
+            csrf = ""
+            m = re.search(
+                r'name="csrf_token"[^>]*value="([^"]+)"|value="([^"]+)"[^>]*name="csrf_token"',
+                r.text,
+            )
+            if m:
+                csrf = m.group(1) or m.group(2) or ""
+            print(f"[CalibreWorker] csrf={csrf[:20]!r}...")
+
+            # 2. POST login
+            r = session.post(
+                f"{base}/login",
+                data={"username": user, "password": password,
+                      "remember_me": "1", "csrf_token": csrf},
+                allow_redirects=True,
                 timeout=5,
             )
-            print(f"[CalibreWorker] GET /ajax/search → {r.status_code} "
-                  f"content-type={r.headers.get('content-type','')!r}")
-            if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
-                data = r.json()
-                print(f"[CalibreWorker] /ajax/search keys: {list(data.keys())}")
-                total = data.get("total") or data.get("num_books") or data.get("count")
-                if total is not None:
-                    result["online"] = True
-                    result["books"] = str(total)
-                    print(f"[CalibreWorker] books (ajax/search)={result['books']}")
-        except Exception as exc:
-            print(f"[CalibreWorker] /ajax/search exception: {exc}")
+            print(f"[CalibreWorker] POST /login → {r.status_code} url={r.url}")
 
-        # ── Book count via /opds/new pagination (fallback) ────────────────
-        # Calibre-Web OPDS does NOT include opensearch:totalResults.
-        # Strategy: page_size = entries on page 1, rel="last" gives last offset
-        # → total = last_offset + page_size.
-        try:
-            r = requests.get(
-                f"{base}/opds/new", params={"offset": 0}, auth=auth, timeout=5,
-            )
-            print(f"[CalibreWorker] GET /opds/new → {r.status_code}")
-            if r.status_code == 200:
+            if "/login" in r.url:
+                print("[CalibreWorker] Login failed — still on login page")
+            else:
                 result["online"] = True
-                xml_root = ET.fromstring(r.content)
-                entries = xml_root.findall(f"{{{_ATOM}}}entry")
-                page_size = len(entries)
-                print(f"[CalibreWorker] /opds/new page_size={page_size}")
 
-                links = {lnk.get("rel"): lnk.get("href", "")
-                         for lnk in xml_root.findall(f"{{{_ATOM}}}link")}
-                print(f"[CalibreWorker] /opds/new links: {links}")
-
-                last_offset = None
-                if "last" in links:
-                    import re as _re
-                    m = _re.search(r"offset=(\d+)", links["last"])
+                # 3. Scrape /stats
+                r = session.get(f"{base}/stats", timeout=5)
+                print(f"[CalibreWorker] GET /stats → {r.status_code}")
+                if r.status_code == 200:
+                    m = re.search(
+                        r"<td[^>]*>\s*(\d+)\s*</td>\s*<td[^>]*>\s*Books in this Library\s*</td>",
+                        r.text,
+                    )
                     if m:
-                        last_offset = int(m.group(1))
+                        result["books"] = m.group(1)
+                    m = re.search(
+                        r"<td[^>]*>\s*(\d+)\s*</td>\s*<td[^>]*>\s*Authors in this Library\s*</td>",
+                        r.text,
+                    )
+                    if m:
+                        result["authors"] = m.group(1)
+                    print(f"[CalibreWorker] books={result['books']} authors={result['authors']}")
 
-                print(f"[CalibreWorker] last_offset={last_offset}")
-                if last_offset is not None and page_size:
-                    result["books"] = str(last_offset + page_size)
-                elif page_size:
-                    result["books"] = str(page_size)
-                print(f"[CalibreWorker] books={result['books']}")
         except Exception as exc:
-            print(f"[CalibreWorker] /opds/new exception: {exc}")
+            print(f"[CalibreWorker] session exception: {exc}")
 
-        # ── Author count via OPDS root navigation ─────────────────────────
-        # Parse /opds/ root → find "author" entry → follow its link → pagination
-        try:
-            r = requests.get(f"{base}/opds/", auth=auth, timeout=5)
-            print(f"[CalibreWorker] GET /opds/ → {r.status_code}")
-            if r.status_code == 200:
-                result["online"] = True
-                xml_root = ET.fromstring(r.content)
-                nav_entries = xml_root.findall(f"{{{_ATOM}}}entry")
-                print(f"[CalibreWorker] /opds/ nav entries: "
-                      f"{[e.findtext(f'{{{_ATOM}}}title') for e in nav_entries]}")
-
-                author_href = None
-                for entry in nav_entries:
-                    title_el = entry.find(f"{{{_ATOM}}}title")
-                    if title_el is not None and title_el.text:
-                        if "author" in title_el.text.lower() or "auteur" in title_el.text.lower():
-                            link_el = entry.find(f"{{{_ATOM}}}link")
-                            if link_el is not None:
-                                author_href = link_el.get("href", "")
-                            break
-                print(f"[CalibreWorker] author_href={author_href!r}")
-
-                if author_href:
-                    if author_href.startswith("/"):
-                        author_url = base + author_href.split("?")[0]
-                    else:
-                        author_url = author_href.split("?")[0]
-                    r2 = requests.get(author_url, auth=auth, timeout=5)
-                    print(f"[CalibreWorker] GET {author_url} → {r2.status_code}")
-                    if r2.status_code == 200:
-                        xml2 = ET.fromstring(r2.content)
-                        entries2 = xml2.findall(f"{{{_ATOM}}}entry")
-                        page2 = len(entries2)
-                        links2 = {lnk.get("rel"): lnk.get("href", "")
-                                  for lnk in xml2.findall(f"{{{_ATOM}}}link")}
-                        print(f"[CalibreWorker] author page entries={page2} links={links2}")
-                        last2 = None
-                        if "last" in links2:
-                            import re as _re
-                            m = _re.search(r"offset=(\d+)", links2["last"])
-                            if m:
-                                last2 = int(m.group(1))
-                        if last2 is not None and page2:
-                            result["authors"] = str(last2 + page2)
-                        elif page2:
-                            result["authors"] = str(page2)
-                        print(f"[CalibreWorker] authors={result['authors']}")
-        except Exception as exc:
-            print(f"[CalibreWorker] author count exception: {exc}")
-
-        # ── Fallback online check ─────────────────────────────────────────
+        # ── Fallback: OPDS ping for online status only ────────────────────
         if not result["online"]:
             try:
-                r = requests.get(f"{base}/opds/", auth=auth, timeout=5)
+                r = requests.get(
+                    f"{base}/opds/", auth=(user, password), timeout=5,
+                )
                 result["online"] = r.status_code in (200, 302)
+                print(f"[CalibreWorker] OPDS fallback → {r.status_code} online={result['online']}")
             except Exception:
                 pass
 
