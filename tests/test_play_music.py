@@ -115,6 +115,20 @@ class TestPlayMusic(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("lecteur", result["message"].lower())
 
+    def test_ha_play_media_failure_returns_error(self):
+        result, mm, srv, ha = self._run(
+            {"genre": "jazz", "room": "salon"},
+            play_ok=False
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("Impossible de lancer", result["message"])
+
+    def test_custom_count_parameter(self):
+        result, mm, srv, ha = self._run(
+            {"genre": "jazz", "room": "salon", "count": "8"}
+        )
+        mm.get_songs_by_genre.assert_called_once_with("jazz", count=8)
+
 
 if __name__ == "__main__":
     unittest.main()
