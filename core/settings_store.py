@@ -89,6 +89,12 @@ DEFAULT_SETTINGS = {
         "user": "",
         "password": "",
     },
+    "music": {
+        "default_player": "",
+        "room_players": {},
+        "playlist_server_host": "192.168.1.70",
+        "playlist_server_port": 8765,
+    },
     "calibre": {
         "url": "",
         "username": "",
