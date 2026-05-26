@@ -81,18 +81,15 @@ class CalibreWorker(QObject):
                 r = session.get(f"{base}/stats", timeout=5)
                 print(f"[CalibreWorker] GET /stats → {r.status_code}")
                 if r.status_code == 200:
-                    m = re.search(
-                        r"<td[^>]*>\s*(\d+)\s*</td>\s*<td[^>]*>\s*Books in this Library\s*</td>",
-                        r.text,
-                    )
-                    if m:
-                        result["books"] = m.group(1)
-                    m = re.search(
-                        r"<td[^>]*>\s*(\d+)\s*</td>\s*<td[^>]*>\s*Authors in this Library\s*</td>",
-                        r.text,
-                    )
-                    if m:
-                        result["authors"] = m.group(1)
+                    # Locale-independent: collect all <td>NUMBER</td> in order.
+                    # Calibre-Web /stats lists: books first, authors second.
+                    counts = re.findall(r"<td[^>]*>\s*(\d[\d\s]*)\s*</td>", r.text)
+                    counts = [c.strip().replace(" ", "") for c in counts]
+                    print(f"[CalibreWorker] /stats numeric cells: {counts[:6]}")
+                    if len(counts) >= 1:
+                        result["books"] = counts[0]
+                    if len(counts) >= 2:
+                        result["authors"] = counts[1]
                     print(f"[CalibreWorker] books={result['books']} authors={result['authors']}")
 
         except Exception as exc:
