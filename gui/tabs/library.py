@@ -47,47 +47,54 @@ class CalibreWorker(QObject):
 
         # ── Book count via /opds/new pagination ───────────────────────────
         # Calibre-Web OPDS does NOT include opensearch:totalResults.
-        # Strategy: read page size from entry count, then follow rel="last"
-        # link (offset) to compute total = last_offset + page_size.
+        # Strategy: page_size = entries on page 1, rel="last" gives last offset
+        # → total = last_offset + page_size.
         try:
             r = requests.get(
                 f"{base}/opds/new", params={"offset": 0}, auth=auth, timeout=5,
             )
+            print(f"[CalibreWorker] GET /opds/new → {r.status_code}")
             if r.status_code == 200:
                 result["online"] = True
                 xml_root = ET.fromstring(r.content)
                 entries = xml_root.findall(f"{{{_ATOM}}}entry")
                 page_size = len(entries)
+                print(f"[CalibreWorker] /opds/new page_size={page_size}")
 
-                # Look for rel="last" link → href contains offset=N
+                links = {lnk.get("rel"): lnk.get("href", "")
+                         for lnk in xml_root.findall(f"{{{_ATOM}}}link")}
+                print(f"[CalibreWorker] /opds/new links: {links}")
+
                 last_offset = None
-                for link in xml_root.findall(f"{{{_ATOM}}}link"):
-                    if link.get("rel") == "last":
-                        href = link.get("href", "")
-                        import re as _re
-                        m = _re.search(r"offset=(\d+)", href)
-                        if m:
-                            last_offset = int(m.group(1))
-                        break
+                if "last" in links:
+                    import re as _re
+                    m = _re.search(r"offset=(\d+)", links["last"])
+                    if m:
+                        last_offset = int(m.group(1))
 
+                print(f"[CalibreWorker] last_offset={last_offset}")
                 if last_offset is not None and page_size:
                     result["books"] = str(last_offset + page_size)
                 elif page_size:
-                    # Single page — all books fit on one page
                     result["books"] = str(page_size)
+                print(f"[CalibreWorker] books={result['books']}")
         except Exception as exc:
-            print(f"[CalibreWorker] /opds/new: {exc}")
+            print(f"[CalibreWorker] /opds/new exception: {exc}")
 
         # ── Author count via OPDS root navigation ─────────────────────────
-        # Parse /opds/ root to find the author navigation entry and its link,
-        # then follow that link and count entries (or use rel="last" offset).
+        # Parse /opds/ root → find "author" entry → follow its link → pagination
         try:
             r = requests.get(f"{base}/opds/", auth=auth, timeout=5)
+            print(f"[CalibreWorker] GET /opds/ → {r.status_code}")
             if r.status_code == 200:
                 result["online"] = True
                 xml_root = ET.fromstring(r.content)
+                nav_entries = xml_root.findall(f"{{{_ATOM}}}entry")
+                print(f"[CalibreWorker] /opds/ nav entries: "
+                      f"{[e.findtext(f'{{{_ATOM}}}title') for e in nav_entries]}")
+
                 author_href = None
-                for entry in xml_root.findall(f"{{{_ATOM}}}entry"):
+                for entry in nav_entries:
                     title_el = entry.find(f"{{{_ATOM}}}title")
                     if title_el is not None and title_el.text:
                         if "author" in title_el.text.lower() or "auteur" in title_el.text.lower():
@@ -95,32 +102,35 @@ class CalibreWorker(QObject):
                             if link_el is not None:
                                 author_href = link_el.get("href", "")
                             break
+                print(f"[CalibreWorker] author_href={author_href!r}")
+
                 if author_href:
-                    # author_href may be relative
                     if author_href.startswith("/"):
                         author_url = base + author_href.split("?")[0]
                     else:
                         author_url = author_href.split("?")[0]
                     r2 = requests.get(author_url, auth=auth, timeout=5)
+                    print(f"[CalibreWorker] GET {author_url} → {r2.status_code}")
                     if r2.status_code == 200:
                         xml2 = ET.fromstring(r2.content)
                         entries2 = xml2.findall(f"{{{_ATOM}}}entry")
                         page2 = len(entries2)
+                        links2 = {lnk.get("rel"): lnk.get("href", "")
+                                  for lnk in xml2.findall(f"{{{_ATOM}}}link")}
+                        print(f"[CalibreWorker] author page entries={page2} links={links2}")
                         last2 = None
-                        for link in xml2.findall(f"{{{_ATOM}}}link"):
-                            if link.get("rel") == "last":
-                                href2 = link.get("href", "")
-                                import re as _re
-                                m = _re.search(r"offset=(\d+)", href2)
-                                if m:
-                                    last2 = int(m.group(1))
-                                break
+                        if "last" in links2:
+                            import re as _re
+                            m = _re.search(r"offset=(\d+)", links2["last"])
+                            if m:
+                                last2 = int(m.group(1))
                         if last2 is not None and page2:
                             result["authors"] = str(last2 + page2)
                         elif page2:
                             result["authors"] = str(page2)
+                        print(f"[CalibreWorker] authors={result['authors']}")
         except Exception as exc:
-            print(f"[CalibreWorker] author count: {exc}")
+            print(f"[CalibreWorker] author count exception: {exc}")
 
         # ── Fallback online check ─────────────────────────────────────────
         if not result["online"]:
