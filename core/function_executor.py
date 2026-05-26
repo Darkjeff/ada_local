@@ -5,6 +5,7 @@ Function Executor - Executes Gemma-routed functions with actual backend calls.
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+import random
 import threading
 import time
 import re
@@ -811,22 +812,26 @@ class FunctionExecutor:
     def _play_music(self, params: dict) -> dict:
         from core.music_manager import music_manager
         from core.ha_control import ha_manager
+        from core.playlist_server import playlist_server
 
-        entity_id = settings.get("music.default_player", "").strip()
+        genre  = params.get("genre", "").strip()
+        artist = params.get("artist", "").strip()
+        room   = params.get("room", "").strip()
+        count  = int(params.get("count", 15))
+
+        room_map  = settings.get("music.room_players", {})
+        entity_id = room_map.get(room.lower()) or settings.get("music.default_player", "")
         if not entity_id:
             return {
                 "success": False,
-                "message": "Aucun lecteur configuré. Configure le lecteur par défaut dans les paramètres musique.",
+                "message": "Aucun lecteur configuré. Ajoute un lecteur dans les paramètres musique.",
                 "data": None,
             }
 
-        genre = params.get("genre", "").strip()
-        artist = params.get("artist", "").strip()
-
         if genre:
-            songs = music_manager.get_songs_by_genre(genre)
+            songs = music_manager.get_songs_by_genre(genre, count=count)
         elif artist:
-            songs = music_manager.get_songs_by_artist(artist)
+            songs = music_manager.get_songs_by_artist(artist, count=count)
         else:
             return {"success": False, "message": "Précise un genre ou un artiste.", "data": None}
 
@@ -834,14 +839,19 @@ class FunctionExecutor:
             label = genre or artist
             return {"success": False, "message": f"Aucun morceau trouvé pour '{label}'.", "data": None}
 
-        song = songs[0]
-        url = music_manager.build_stream_url(song["id"])
-        ok = ha_manager.play_media(entity_id, url)
+        random.shuffle(songs)
+        playlist = songs[:count]
+        m3u = music_manager.build_m3u(playlist)
+        url = playlist_server.serve(m3u)
+        ok  = ha_manager.play_media(entity_id, url)
 
+        label = room or entity_id
         if ok:
-            title = song.get("title", "?")
-            artist_name = song.get("artist", "?")
-            return {"success": True, "message": f"Lecture de « {title} » — {artist_name}", "data": None}
+            return {
+                "success": True,
+                "message": f"Je lance {'du ' + genre if genre else artist} dans {label} — {len(playlist)} titres en queue.",
+                "data": {"entity_id": entity_id, "track_count": len(playlist)},
+            }
         return {"success": False, "message": "Impossible de lancer la lecture sur le lecteur.", "data": None}
 
     def _control_media(self, params: dict) -> dict:
