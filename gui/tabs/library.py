@@ -36,77 +36,100 @@ class CalibreWorker(QObject):
     def fetch(self) -> None:
         result = {"online": False, "books": "—", "authors": "—"}
         base = settings.get("calibre.url", "").rstrip("/")
-        user = settings.get("calibre.username", "")
-        auth = (user, settings.get("calibre.password", ""))
-
-        print(f"[CalibreWorker] base={base!r} user={user!r}")
+        auth = (
+            settings.get("calibre.username", ""),
+            settings.get("calibre.password", ""),
+        )
 
         if not base:
-            print("[CalibreWorker] No base URL configured — aborting")
             self.done.emit(result)
             return
 
-        # ── Book count via /opds/new ──────────────────────────────────────
+        # ── Book count via /opds/new pagination ───────────────────────────
+        # Calibre-Web OPDS does NOT include opensearch:totalResults.
+        # Strategy: read page size from entry count, then follow rel="last"
+        # link (offset) to compute total = last_offset + page_size.
         try:
-            url = f"{base}/opds/new"
-            r = requests.get(url, params={"offset": 0}, auth=auth, timeout=5)
-            print(f"[CalibreWorker] GET {url} → {r.status_code}")
+            r = requests.get(
+                f"{base}/opds/new", params={"offset": 0}, auth=auth, timeout=5,
+            )
             if r.status_code == 200:
+                result["online"] = True
                 xml_root = ET.fromstring(r.content)
-                # All direct-child tags
-                tags = [child.tag for child in xml_root]
-                print(f"[CalibreWorker] /opds/new direct children ({len(tags)}): {tags}")
-                # Search totalResults anywhere in the tree
-                all_tr = list(xml_root.iter(f"{{{_OPENSEARCH}}}totalResults"))
-                print(f"[CalibreWorker] totalResults anywhere (opensearch ns): {all_tr}")
-                # Also dump first 400 chars of raw XML to see actual namespaces
-                print(f"[CalibreWorker] raw XML[:400]: {r.text[:400]!r}")
-                el = all_tr[0] if all_tr else None
-                el_text = el.text if el is not None else "N/A"
-                print(f"[CalibreWorker] el={el!r} text={el_text!r}")
-                if el is not None and el.text:
-                    result["online"] = True
-                    result["books"] = el.text.strip()
-            else:
-                print(f"[CalibreWorker] /opds/new body: {r.text[:200]!r}")
-        except Exception as exc:
-            print(f"[CalibreWorker] /opds/new exception: {exc}")
+                entries = xml_root.findall(f"{{{_ATOM}}}entry")
+                page_size = len(entries)
 
-        # ── Author count via /opds/authors ────────────────────────────────
+                # Look for rel="last" link → href contains offset=N
+                last_offset = None
+                for link in xml_root.findall(f"{{{_ATOM}}}link"):
+                    if link.get("rel") == "last":
+                        href = link.get("href", "")
+                        import re as _re
+                        m = _re.search(r"offset=(\d+)", href)
+                        if m:
+                            last_offset = int(m.group(1))
+                        break
+
+                if last_offset is not None and page_size:
+                    result["books"] = str(last_offset + page_size)
+                elif page_size:
+                    # Single page — all books fit on one page
+                    result["books"] = str(page_size)
+        except Exception as exc:
+            print(f"[CalibreWorker] /opds/new: {exc}")
+
+        # ── Author count via OPDS root navigation ─────────────────────────
+        # Parse /opds/ root to find the author navigation entry and its link,
+        # then follow that link and count entries (or use rel="last" offset).
         try:
-            url = f"{base}/opds/authors"
-            r = requests.get(url, auth=auth, timeout=5)
-            print(f"[CalibreWorker] GET {url} → {r.status_code}")
+            r = requests.get(f"{base}/opds/", auth=auth, timeout=5)
             if r.status_code == 200:
+                result["online"] = True
                 xml_root = ET.fromstring(r.content)
-                el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
-                el_text = el.text if el is not None else "N/A"
-                print(f"[CalibreWorker] authors totalResults el={el!r} text={el_text!r}")
-                if el is not None and el.text:
-                    result["online"] = True
-                    result["authors"] = el.text.strip()
-                else:
-                    entries = xml_root.findall(f"{{{_ATOM}}}entry")
-                    print(f"[CalibreWorker] authors entry count on page: {len(entries)}")
-                    if entries:
-                        result["online"] = True
-                        result["authors"] = str(len(entries)) + "+"
-            else:
-                print(f"[CalibreWorker] /opds/authors body: {r.text[:200]!r}")
+                author_href = None
+                for entry in xml_root.findall(f"{{{_ATOM}}}entry"):
+                    title_el = entry.find(f"{{{_ATOM}}}title")
+                    if title_el is not None and title_el.text:
+                        if "author" in title_el.text.lower() or "auteur" in title_el.text.lower():
+                            link_el = entry.find(f"{{{_ATOM}}}link")
+                            if link_el is not None:
+                                author_href = link_el.get("href", "")
+                            break
+                if author_href:
+                    # author_href may be relative
+                    if author_href.startswith("/"):
+                        author_url = base + author_href.split("?")[0]
+                    else:
+                        author_url = author_href.split("?")[0]
+                    r2 = requests.get(author_url, auth=auth, timeout=5)
+                    if r2.status_code == 200:
+                        xml2 = ET.fromstring(r2.content)
+                        entries2 = xml2.findall(f"{{{_ATOM}}}entry")
+                        page2 = len(entries2)
+                        last2 = None
+                        for link in xml2.findall(f"{{{_ATOM}}}link"):
+                            if link.get("rel") == "last":
+                                href2 = link.get("href", "")
+                                import re as _re
+                                m = _re.search(r"offset=(\d+)", href2)
+                                if m:
+                                    last2 = int(m.group(1))
+                                break
+                        if last2 is not None and page2:
+                            result["authors"] = str(last2 + page2)
+                        elif page2:
+                            result["authors"] = str(page2)
         except Exception as exc:
-            print(f"[CalibreWorker] /opds/authors exception: {exc}")
+            print(f"[CalibreWorker] author count: {exc}")
 
-        # ── Fallback ping ─────────────────────────────────────────────────
+        # ── Fallback online check ─────────────────────────────────────────
         if not result["online"]:
             try:
-                url = f"{base}/opds/"
-                r = requests.get(url, auth=auth, timeout=5)
-                print(f"[CalibreWorker] GET {url} (fallback) → {r.status_code}")
+                r = requests.get(f"{base}/opds/", auth=auth, timeout=5)
                 result["online"] = r.status_code in (200, 302)
-            except Exception as exc:
-                print(f"[CalibreWorker] /opds/ fallback exception: {exc}")
+            except Exception:
+                pass
 
-        print(f"[CalibreWorker] final result: {result}")
         self.done.emit(result)
 
 
