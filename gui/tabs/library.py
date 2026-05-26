@@ -80,11 +80,13 @@ class CalibreWorker(QObject):
                 csrf = m.group(1) or m.group(2) or ""
             print(f"[CalibreWorker] csrf={csrf[:20]!r}...")
 
-            # 2. POST /login
+            # 2. POST /login — inclure next=/ pour éviter la redirection vers dbconfig
+            # Sans next=, Calibre-Web redirige les admins vers /admin/dbconfig.
             r = session.post(
                 f"{base}/login",
                 data={"username": user, "password": password,
-                      "remember_me": "1", "csrf_token": csrf},
+                      "remember_me": "1", "csrf_token": csrf,
+                      "next": "/"},
                 allow_redirects=True,
                 timeout=5,
             )
@@ -92,30 +94,49 @@ class CalibreWorker(QObject):
 
             if "/login" in r.url:
                 print("[CalibreWorker] Login failed — still on login page")
-            else:
+            elif "dbconfig" in r.url:
+                print("[CalibreWorker] Landed on dbconfig — retrying with ?next=/ in URL")
+                # Fallback : GET /login?next=/ puis re-POST
+                r2 = session.get(f"{base}/login?next=%2F", timeout=5)
+                csrf2 = ""
+                m2 = re.search(
+                    r'name="csrf_token"[^>]*value="([^"]+)"|value="([^"]+)"[^>]*name="csrf_token"',
+                    r2.text,
+                )
+                if m2:
+                    csrf2 = m2.group(1) or m2.group(2) or ""
+                r = session.post(
+                    f"{base}/login",
+                    data={"username": user, "password": password,
+                          "remember_me": "1", "csrf_token": csrf2,
+                          "next": "/"},
+                    params={"next": "/"},
+                    allow_redirects=True,
+                    timeout=5,
+                )
+                print(f"[CalibreWorker] Retry POST /login → {r.status_code} url={r.url}")
+
+            if "/login" not in r.url and "dbconfig" not in r.url:
                 result["online"] = True
 
-                # 3. GET stats page — try several known routes
-                for stats_url in (
-                    f"{base}/admin/stats",
-                    f"{base}/stats",
-                    f"{base}/admin",
-                ):
+                # 3. GET /stats (route réelle dans Calibre-Web, admin requis)
+                for stats_url in (f"{base}/stats", f"{base}/admin/stats"):
                     r = session.get(stats_url, timeout=5)
                     print(f"[CalibreWorker] GET {stats_url} → {r.status_code} (final url={r.url})")
-                    if r.status_code != 200:
+                    if r.status_code != 200 or "dbconfig" in r.url:
                         continue
 
-                    # Debug: print first 800 chars of HTML to identify structure
-                    snippet = r.text[:800].replace("\n", " ").replace("  ", " ")
+                    snippet = r.text[:600].replace("\n", " ").replace("  ", " ")
                     print(f"[CalibreWorker] HTML snippet: {snippet!r}")
 
-                    # Try all number-bearing tags: td, span, div, h1-h4, strong, b
+                    # Tous les tags numériques possibles
                     counts = re.findall(
                         r"<(?:td|span|div|h[1-4]|strong|b|p)[^>]*>\s*(\d[\d\s]{0,5})\s*</(?:td|span|div|h[1-4]|strong|b|p)>",
                         r.text,
                     )
-                    counts = [c.strip().replace(" ", "") for c in counts if int(c.strip().replace(" ", "")) > 0]
+                    counts = [c.strip().replace(" ", "") for c in counts
+                              if c.strip().replace(" ", "").isdigit()
+                              and int(c.strip().replace(" ", "")) > 0]
                     print(f"[CalibreWorker] numeric elements: {counts[:10]}")
                     if len(counts) >= 2:
                         result["books"]   = counts[0]
