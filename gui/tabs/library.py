@@ -45,7 +45,30 @@ class CalibreWorker(QObject):
             self.done.emit(result)
             return
 
-        # ── Book count via /opds/new pagination ───────────────────────────
+        # ── Try Calibre Content Server JSON API first ─────────────────────
+        # /ajax/search returns {"total": N, "book_ids": [...]} — clean and fast.
+        # Works on both Calibre's built-in server and some Calibre-Web configs.
+        try:
+            r = requests.get(
+                f"{base}/ajax/search",
+                params={"query": "", "num": 0, "offset": 0, "sort": "title"},
+                auth=auth,
+                timeout=5,
+            )
+            print(f"[CalibreWorker] GET /ajax/search → {r.status_code} "
+                  f"content-type={r.headers.get('content-type','')!r}")
+            if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+                data = r.json()
+                print(f"[CalibreWorker] /ajax/search keys: {list(data.keys())}")
+                total = data.get("total") or data.get("num_books") or data.get("count")
+                if total is not None:
+                    result["online"] = True
+                    result["books"] = str(total)
+                    print(f"[CalibreWorker] books (ajax/search)={result['books']}")
+        except Exception as exc:
+            print(f"[CalibreWorker] /ajax/search exception: {exc}")
+
+        # ── Book count via /opds/new pagination (fallback) ────────────────
         # Calibre-Web OPDS does NOT include opensearch:totalResults.
         # Strategy: page_size = entries on page 1, rel="last" gives last offset
         # → total = last_offset + page_size.
