@@ -1,13 +1,13 @@
 """
 Library Tab — Calibre-Web status panel with stats and quick access.
 
-Shows library stats fetched from the Calibre-Web API and opens the
-interface in the system browser.  Configuration (URL / credentials)
-is kept in the settings card group at the bottom, matching the Music tab
-pattern.
-"""
+Stats are fetched using the most reliable method available (priority order):
+  1. SQLite direct  — if calibre.db_path is set and the file is accessible
+  2. Web scraping   — session login → /admin/stats (admin-only route)
+  3. OPDS ping      — online status only (no counts)
 
-import xml.etree.ElementTree as ET
+Configuration (URL / credentials / db_path) lives in the settings card group.
+"""
 
 import requests
 from PySide6.QtCore import Qt, QUrl, QObject, Signal, QThread
@@ -22,35 +22,53 @@ from qfluentwidgets import (
 from core.i18n import tr
 from core.settings_store import settings
 
-_OPENSEARCH = "http://a9.com/-/spec/opensearch/1.1/"
-_ATOM       = "http://www.w3.org/2005/Atom"
-
 
 # ---------------------------------------------------------------------------
-# Background worker — fetch Calibre-Web stats via OPDS (Basic Auth)
+# Background worker
 # ---------------------------------------------------------------------------
 
 class CalibreWorker(QObject):
     done = Signal(dict)
 
     def fetch(self) -> None:
+        import os
         import re
+        import sqlite3
+
         result = {"online": False, "books": "—", "authors": "—"}
-        base = settings.get("calibre.url", "").rstrip("/")
-        user = settings.get("calibre.username", "")
+        base     = settings.get("calibre.url",      "").rstrip("/")
+        user     = settings.get("calibre.username", "")
         password = settings.get("calibre.password", "")
+        db_path  = settings.get("calibre.db_path",  "").strip()
+
+        # ── Option A : SQLite direct (prioritaire) ────────────────────────
+        # Si le chemin vers metadata.db est configuré et accessible localement
+        # (montage réseau, chemin absolu…), on interroge directement la BD.
+        if db_path and os.path.isfile(db_path):
+            try:
+                conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                books   = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+                authors = conn.execute("SELECT COUNT(*) FROM authors").fetchone()[0]
+                conn.close()
+                result["online"]  = True
+                result["books"]   = str(books)
+                result["authors"] = str(authors)
+                print(f"[CalibreWorker] SQLite direct → books={books} authors={authors}")
+                self.done.emit(result)
+                return
+            except Exception as exc:
+                print(f"[CalibreWorker] SQLite error: {exc}")
 
         if not base:
             self.done.emit(result)
             return
 
-        # ── Web session: login → scrape /stats ────────────────────────────
-        # Calibre-Web has no stats API. The /stats page has exact counts.
-        # We need a session cookie — Basic Auth won't work on web endpoints.
+        # ── Option B : session web → /admin/stats ─────────────────────────
+        # La route admin-only de Calibre-Web est /admin/stats (pas /stats).
         try:
             session = requests.Session()
 
-            # 1. Fetch login page to grab CSRF token
+            # 1. GET /login → CSRF token
             r = session.get(f"{base}/login", timeout=5)
             print(f"[CalibreWorker] GET /login → {r.status_code}")
             csrf = ""
@@ -62,7 +80,7 @@ class CalibreWorker(QObject):
                 csrf = m.group(1) or m.group(2) or ""
             print(f"[CalibreWorker] csrf={csrf[:20]!r}...")
 
-            # 2. POST login
+            # 2. POST /login
             r = session.post(
                 f"{base}/login",
                 data={"username": user, "password": password,
@@ -77,30 +95,29 @@ class CalibreWorker(QObject):
             else:
                 result["online"] = True
 
-                # 3. Scrape /stats
-                r = session.get(f"{base}/stats", timeout=5)
-                print(f"[CalibreWorker] GET /stats → {r.status_code}")
-                if r.status_code == 200:
-                    # Locale-independent: collect all <td>NUMBER</td> in order.
-                    # Calibre-Web /stats lists: books first, authors second.
+                # 3. GET /admin/stats (admin-only; /stats returns home page)
+                for stats_url in (f"{base}/admin/stats", f"{base}/stats"):
+                    r = session.get(stats_url, timeout=5)
+                    print(f"[CalibreWorker] GET {stats_url} → {r.status_code}")
+                    if r.status_code != 200:
+                        continue
+                    # Locale-independent: first two <td>NUMBER</td> = books, authors
                     counts = re.findall(r"<td[^>]*>\s*(\d[\d\s]*)\s*</td>", r.text)
                     counts = [c.strip().replace(" ", "") for c in counts]
-                    print(f"[CalibreWorker] /stats numeric cells: {counts[:6]}")
-                    if len(counts) >= 1:
-                        result["books"] = counts[0]
+                    print(f"[CalibreWorker] numeric cells: {counts[:6]}")
                     if len(counts) >= 2:
+                        result["books"]   = counts[0]
                         result["authors"] = counts[1]
-                    print(f"[CalibreWorker] books={result['books']} authors={result['authors']}")
+                        print(f"[CalibreWorker] books={result['books']} authors={result['authors']}")
+                        break
 
         except Exception as exc:
             print(f"[CalibreWorker] session exception: {exc}")
 
-        # ── Fallback: OPDS ping for online status only ────────────────────
+        # ── Option C : OPDS ping (online status uniquement) ───────────────
         if not result["online"]:
             try:
-                r = requests.get(
-                    f"{base}/opds/", auth=(user, password), timeout=5,
-                )
+                r = requests.get(f"{base}/opds/", auth=(user, password), timeout=5)
                 result["online"] = r.status_code in (200, 302)
                 print(f"[CalibreWorker] OPDS fallback → {r.status_code} online={result['online']}")
             except Exception:
@@ -273,6 +290,13 @@ class LibraryTab(QWidget):
             "calibre.password",
             placeholder="••••••",
             masked=True,
+            parent=group,
+        ))
+        group.addSettingCard(_LineCard(
+            FIF.FOLDER,
+            "library.db_path", "library.db_path_desc",
+            "calibre.db_path",
+            placeholder="/mnt/nas/Calibre Library/metadata.db",
             parent=group,
         ))
 

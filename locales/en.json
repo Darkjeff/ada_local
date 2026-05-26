@@ -132,7 +132,9 @@
     "username": "Username",
     "username_desc": "Calibre-Web username",
     "password": "Password",
-    "password_desc": "Calibre-Web password"
+    "password_desc": "Calibre-Web password",
+    "db_path": "metadata.db path",
+    "db_path_desc": "Local path to the Calibre database (e.g. /mnt/nas/Calibre\\ Library/metadata.db). More reliable than web scraping."
   },
   "senses": {
     "vision": "Vision",

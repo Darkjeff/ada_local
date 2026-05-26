@@ -99,6 +99,7 @@ DEFAULT_SETTINGS = {
         "url": "",
         "username": "",
         "password": "",
+        "db_path": "",   # Chemin local vers metadata.db (optionnel, plus fiable)
     },
 }
 

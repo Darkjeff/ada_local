@@ -132,7 +132,9 @@
     "username": "Nom d'utilisateur",
     "username_desc": "Identifiant Calibre-Web",
     "password": "Mot de passe",
-    "password_desc": "Mot de passe Calibre-Web"
+    "password_desc": "Mot de passe Calibre-Web",
+    "db_path": "Chemin metadata.db",
+    "db_path_desc": "Chemin local vers la base Calibre (ex : /mnt/nas/Calibre\\ Library/metadata.db). Plus fiable que le scraping web."
   },
   "senses": {
     "vision": "Vision",
