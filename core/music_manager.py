@@ -63,5 +63,15 @@ class MusicManager:
         qs = urlencode({**auth, "id": song_id, "format": "mp3"})
         return f"{base}/rest/stream?{qs}"
 
+    def build_m3u(self, songs: list[dict]) -> str:
+        """Return an M3U playlist string for the given songs list."""
+        lines = ["#EXTM3U"]
+        for s in songs:
+            title  = s.get("title", "Unknown")
+            artist = s.get("artist", "")
+            lines.append(f"#EXTINF:-1,{artist} - {title}")
+            lines.append(self.build_stream_url(s["id"]))
+        return "\n".join(lines)
+
 
 music_manager = MusicManager()
