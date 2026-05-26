@@ -95,16 +95,28 @@ class CalibreWorker(QObject):
             else:
                 result["online"] = True
 
-                # 3. GET /admin/stats (admin-only; /stats returns home page)
-                for stats_url in (f"{base}/admin/stats", f"{base}/stats"):
+                # 3. GET stats page — try several known routes
+                for stats_url in (
+                    f"{base}/admin/stats",
+                    f"{base}/stats",
+                    f"{base}/admin",
+                ):
                     r = session.get(stats_url, timeout=5)
-                    print(f"[CalibreWorker] GET {stats_url} → {r.status_code}")
+                    print(f"[CalibreWorker] GET {stats_url} → {r.status_code} (final url={r.url})")
                     if r.status_code != 200:
                         continue
-                    # Locale-independent: first two <td>NUMBER</td> = books, authors
-                    counts = re.findall(r"<td[^>]*>\s*(\d[\d\s]*)\s*</td>", r.text)
-                    counts = [c.strip().replace(" ", "") for c in counts]
-                    print(f"[CalibreWorker] numeric cells: {counts[:6]}")
+
+                    # Debug: print first 800 chars of HTML to identify structure
+                    snippet = r.text[:800].replace("\n", " ").replace("  ", " ")
+                    print(f"[CalibreWorker] HTML snippet: {snippet!r}")
+
+                    # Try all number-bearing tags: td, span, div, h1-h4, strong, b
+                    counts = re.findall(
+                        r"<(?:td|span|div|h[1-4]|strong|b|p)[^>]*>\s*(\d[\d\s]{0,5})\s*</(?:td|span|div|h[1-4]|strong|b|p)>",
+                        r.text,
+                    )
+                    counts = [c.strip().replace(" ", "") for c in counts if int(c.strip().replace(" ", "")) > 0]
+                    print(f"[CalibreWorker] numeric elements: {counts[:10]}")
                     if len(counts) >= 2:
                         result["books"]   = counts[0]
                         result["authors"] = counts[1]
