@@ -67,10 +67,12 @@ class MusicManager:
         """Return an M3U playlist string for the given songs list."""
         lines = ["#EXTM3U"]
         for s in songs:
-            title  = s.get("title", "Unknown")
-            artist = s.get("artist", "")
-            lines.append(f"#EXTINF:-1,{artist} - {title}")
-            lines.append(self.build_stream_url(s["id"]))
+            song_id = s.get("id", "")
+            if song_id:
+                title = s.get("title", "Unknown")
+                artist = s.get("artist", "")
+                lines.append(f"#EXTINF:-1,{artist} - {title}")
+                lines.append(self.build_stream_url(song_id))
         return "\n".join(lines)
 
 

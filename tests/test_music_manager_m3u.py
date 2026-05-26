@@ -51,6 +51,15 @@ class TestBuildM3u(unittest.TestCase):
         result = m.build_m3u(songs)
         self.assertIn("#EXTINF:-1, - Unknown Track", result)
 
+    def test_build_m3u_skips_song_without_id(self):
+        m = self._make_manager()
+        songs = [
+            {"id": "1", "title": "Track A", "artist": "Band"},
+            {"title": "No ID Track", "artist": "Band"},  # missing id
+        ]
+        result = m.build_m3u(songs)
+        self.assertEqual(result.count("/rest/stream"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
