@@ -11,6 +11,7 @@ Architecture:
 
 import base64
 import json
+import re
 import threading
 import time
 from datetime import datetime
@@ -56,6 +57,93 @@ _INFRA_TRIGGERS = frozenset({
     "état infra", "etat infra", "status infra", "infrastructure status",
     "état de l'infra", "etat de l infra",
 })
+
+# ── Fast-path lumière (bypass Ollama) ────────────────────────────────────────
+# Détecte "allume/éteins la lumière <pièce>" sans LLM.
+# Fonctionne même sous forte charge CPU.
+
+_LIGHT_ON_KW  = frozenset({
+    "allume", "allumer", "active", "activer", "mets", "ouvre", "on", "tourne",
+})
+_LIGHT_OFF_KW = frozenset({
+    "éteins", "eteins", "éteindre", "eteindre", "coupe", "couper", "off",
+    "ferme", "fermer", "éteint", "eteint",
+})
+_LIGHT_KW_RE  = re.compile(r"lumi[eèé]re?", re.I)
+_ROOM_PREP_RE = re.compile(
+    r"(?:du|de\s+la|de\s+l['''\s]|dans\s+le|dans\s+la|dans\s+l['''\s]|au|à)\s*(\w+)",
+    re.I,
+)
+_SKIP_WORDS = frozenset({
+    "la", "le", "les", "du", "de", "des", "l", "un", "une",
+    "dans", "au", "aux", "en", "et", "ou", "lumi", "lumiere", "lumière",
+})
+
+
+def _parse_light_cmd(text: str):
+    """Return (action, room) if text is a light command, else None."""
+    t = text.lower().strip()
+    if not _LIGHT_KW_RE.search(t):
+        return None
+
+    words = re.sub(r"['''\-]", " ", t).split()
+    action = None
+    for w in words:
+        w = w.strip(".,!?;:")
+        if w in _LIGHT_ON_KW:
+            action = "on"
+            break
+        if w in _LIGHT_OFF_KW:
+            action = "off"
+            break
+    if action is None:
+        return None
+
+    # Room: prefer preposition match ("du bureau" → "bureau")
+    m = _ROOM_PREP_RE.search(t)
+    if m:
+        return action, m.group(1)
+
+    # Fallback: last significant word after "lumière"
+    parts = _LIGHT_KW_RE.split(t, maxsplit=1)
+    after = parts[-1] if len(parts) > 1 else ""
+    candidates = [
+        w.strip(".,!?;: ") for w in after.split()
+        if w.strip(".,!?;: ") not in _SKIP_WORDS and w.strip(".,!?;: ")
+    ]
+    return action, (candidates[0] if candidates else "all")
+
+
+# ── Fast-path musique (bypass Ollama) ────────────────────────────────────────
+_MUSIC_PLAY_KW = frozenset({
+    "joue", "jouer", "lance", "lancer", "mets", "mettre", "play",
+    "démarre", "demarre", "diffuse",
+})
+_MUSIC_GENRES = frozenset({
+    "jazz", "rock", "soul", "blues", "classique", "classical", "electro",
+    "techno", "pop", "reggae", "metal", "folk", "rap", "hiphop", "hip-hop",
+    "ambient", "lofi", "lo-fi", "funk", "disco", "country", "rnb", "r&b",
+})
+_MUSIC_ROOM_RE = re.compile(
+    r"(?:dans\s+le|dans\s+la|dans\s+l['''\s]|au|en)\s+(\w+)", re.I
+)
+
+
+def _parse_music_cmd(text: str):
+    """Return (genre, room) if text is a music play command, else None.
+    Returns None if neither genre nor room can be extracted."""
+    t = text.lower().strip()
+    words = set(re.sub(r"['''\-]", " ", t).split())
+    if not (words & _MUSIC_PLAY_KW):
+        return None
+
+    genre = next((g for g in _MUSIC_GENRES if g in t), "")
+    m = _MUSIC_ROOM_RE.search(t)
+    room = m.group(1) if m else ""
+
+    if genre or room:
+        return genre, room
+    return None
 
 
 class TelegramAdapter:
@@ -280,13 +368,52 @@ class TelegramAdapter:
     def _handle_text(self, chat_id: int, text: str):
         session_id = f"telegram_{chat_id}"
 
-        # --- Routing déterministe : état infra ---
+        # --- Routing déterministe (bypass Ollama — instantané) --------------
         text_lower = text.lower().strip()
+
+        # État infra
         if any(trigger in text_lower for trigger in _INFRA_TRIGGERS):
             from core.runtime_state import runtime_state
             runtime_state.refresh()
             self._send(chat_id, runtime_state.format_infra_status_fr())
             return
+
+        # Lumière
+        light_cmd = _parse_light_cmd(text_lower)
+        if light_cmd:
+            action, room = light_cmd
+            print(f"[Telegram] Fast-path → control_light action={action} room={room}")
+            res = function_executor.execute("control_light", {"action": action, "room": room})
+            if res.get("success"):
+                icon = "💡" if action == "on" else "🌑"
+                label = "allumée" if action == "on" else "éteinte"
+                self._send(chat_id, f"{icon} Lumière *{room}* {label}.")
+            else:
+                self._send(chat_id, f"❌ {res.get('message', 'Erreur contrôle lumière.')}")
+            return
+
+        # Musique
+        music_cmd = _parse_music_cmd(text_lower)
+        if music_cmd:
+            genre, room = music_cmd
+            params = {}
+            if genre:
+                params["genre"] = genre
+            if room:
+                params["room"] = room
+            print(f"[Telegram] Fast-path → play_music {params}")
+            res = function_executor.execute("play_music", params)
+            if res.get("success"):
+                parts = []
+                if genre:
+                    parts.append(f"*{genre}*")
+                if room:
+                    parts.append(f"dans le *{room}*")
+                self._send(chat_id, f"🎵 Lecture {' '.join(parts)}…")
+            else:
+                self._send(chat_id, f"❌ {res.get('message', 'Erreur lecture musique.')}")
+            return
+        # ---------------------------------------------------------------
 
         with self._lock:
             history = self._histories.setdefault(chat_id, [])
