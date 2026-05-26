@@ -23,10 +23,11 @@ from core.i18n import tr
 from core.settings_store import settings
 
 _OPENSEARCH = "http://a9.com/-/spec/opensearch/1.1/"
+_ATOM       = "http://www.w3.org/2005/Atom"
 
 
 # ---------------------------------------------------------------------------
-# Background worker — fetch Calibre-Web stats
+# Background worker — fetch Calibre-Web stats via OPDS (Basic Auth)
 # ---------------------------------------------------------------------------
 
 class CalibreWorker(QObject):
@@ -44,36 +45,43 @@ class CalibreWorker(QObject):
             self.done.emit(result)
             return
 
-        # Book count — Calibre-Web AJAX search (returns JSON {total: N})
+        # Book count — /opds/new includes opensearch:totalResults = total library size
+        # (OPDS uses HTTP Basic Auth, unlike the web UI which uses cookie sessions)
         try:
             r = requests.get(
-                f"{base}/ajax/search",
-                params={"q": "", "offset": 0, "limit": 0},
+                f"{base}/opds/new",
+                params={"offset": 0},
                 auth=auth,
                 timeout=5,
             )
             if r.status_code == 200:
-                data = r.json()
-                total = data.get("total")
-                if total is not None:
+                xml_root = ET.fromstring(r.content)
+                el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
+                if el is not None and el.text:
                     result["online"] = True
-                    result["books"] = str(total)
+                    result["books"] = el.text.strip()
         except Exception:
             pass
 
-        # Author count — OPDS authors feed → opensearch:totalResults
+        # Author count — /opds/authors, prefer opensearch:totalResults
         try:
             r = requests.get(f"{base}/opds/authors", auth=auth, timeout=5)
             if r.status_code == 200:
-                root = ET.fromstring(r.content)
-                el = root.find(f"{{{_OPENSEARCH}}}totalResults")
+                xml_root = ET.fromstring(r.content)
+                el = xml_root.find(f"{{{_OPENSEARCH}}}totalResults")
                 if el is not None and el.text:
                     result["online"] = True
                     result["authors"] = el.text.strip()
+                else:
+                    # Fallback: count <entry> elements on first page
+                    entries = xml_root.findall(f"{{{_ATOM}}}entry")
+                    if entries:
+                        result["online"] = True
+                        result["authors"] = str(len(entries)) + "+"
         except Exception:
             pass
 
-        # Fallback online check (OPDS root ping)
+        # Last-resort online check (plain OPDS root ping)
         if not result["online"]:
             try:
                 r = requests.get(f"{base}/opds/", auth=auth, timeout=5)
