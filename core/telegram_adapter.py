@@ -47,6 +47,7 @@ Commandes disponibles :
 /myid — afficher ton chat ID (pour les briefings)
 /status — état du système
 /clear — effacer l'historique de cette conversation
+/books <recherche> — chercher un livre dans la bibliothèque Calibre
 
 Envoie n'importe quel message texte ou une photo pour interagir avec ADA."""
 
@@ -189,9 +190,10 @@ class TelegramAdapter:
 
         # Slash commands (strip @botname suffix e.g. /myid@ada_jeff_bot)
         if text.startswith("/"):
-            cmd = text.split()[0].lower()
-            cmd = cmd.split("@")[0]  # strip @botname if present
-            self._handle_command(chat_id, cmd)
+            parts = text.split(None, 1)
+            cmd = parts[0].lower().split("@")[0]  # strip @botname if present
+            arg = parts[1].strip() if len(parts) > 1 else ""
+            self._handle_command(chat_id, cmd, arg)
             return
 
         self._send_typing(chat_id)
@@ -201,7 +203,7 @@ class TelegramAdapter:
         elif text:
             self._handle_text(chat_id, text)
 
-    def _handle_command(self, chat_id: int, cmd: str):
+    def _handle_command(self, chat_id: int, cmd: str, arg: str = ""):
         if cmd in ("/help", "/start"):
             self._send(chat_id, _HELP_TEXT)
 
@@ -232,6 +234,48 @@ class TelegramAdapter:
             session_id = f"telegram_{chat_id}"
             memory_store.clear_session(session_id)
             self._send(chat_id, "🗑️ Historique effacé.")
+
+        elif cmd == "/books":
+            self._handle_books(chat_id, arg)
+
+    def _handle_books(self, chat_id: int, query: str) -> None:
+        """Search Calibre library and send formatted results."""
+        if not query:
+            self._send(
+                chat_id,
+                "📚 *Recherche de livres*\n"
+                "Utilisation : `/books <titre, auteur ou genre>`\n"
+                "Exemples :\n"
+                "  `/books Dune`\n"
+                "  `/books Frank Herbert`\n"
+                "  `/books science fiction`\n"
+                "  `/books epub à lire`",
+            )
+            return
+
+        self._send_typing(chat_id)
+        from core.calibre_manager import calibre_manager
+
+        print(f"[Telegram] /books query={query!r}")
+        books = calibre_manager.search_books(query, "all", 5)
+
+        if not books:
+            self._send(chat_id, f"❌ Aucun livre trouvé pour « {query} ».")
+            return
+
+        lines = [f"📚 *{len(books)} résultat(s) pour « {query} » :*"]
+        for b in books:
+            year  = f" \\({b['year']}\\)" if b.get("year") else ""
+            fmts  = ", ".join(b.get("formats") or []).upper() or "—"
+            title  = b["title"].replace("*", "\\*").replace("_", "\\_")
+            author = (b.get("author") or "—").replace("*", "\\*")
+            block  = f"\n📖 *{title}*{year}\n✍️ _{author}_\n📄 {fmts}"
+            dl = b.get("download_url", "")
+            if dl:
+                block += f"\n⬇️ [Télécharger]({dl})"
+            lines.append(block)
+
+        self._send(chat_id, "\n".join(lines))
 
     def _handle_text(self, chat_id: int, text: str):
         session_id = f"telegram_{chat_id}"
