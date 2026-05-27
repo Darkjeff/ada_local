@@ -4,6 +4,7 @@ Saves settings to ~/.pocket_ai/settings.json
 """
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -152,12 +153,17 @@ class SettingsStore(QObject):
                 self._save()  # Create the file with defaults
     
     def _save(self):
-        """Persist settings to disk."""
+        """Persist settings to disk with owner-only permissions (chmod 600)."""
         with self._lock:
             try:
                 self._settings_dir.mkdir(parents=True, exist_ok=True)
                 with open(self._settings_file, 'w', encoding='utf-8') as f:
                     json.dump(self._settings, f, indent=2)
+                # Restrict to owner read/write only — protects tokens and passwords
+                try:
+                    os.chmod(self._settings_file, 0o600)
+                except OSError:
+                    pass  # Windows: no-op, permissions handled by NTFS ACL
             except IOError as e:
                 print(f"[Settings] Error saving settings: {e}")
     
