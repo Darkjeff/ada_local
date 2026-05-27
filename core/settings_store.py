@@ -101,6 +101,20 @@ DEFAULT_SETTINGS = {
         "password": "",
         "db_path": "",   # Chemin local vers metadata.db (optionnel, plus fiable)
     },
+    "shell_exec": {
+        "enabled": True,
+        # If True, only READ_ONLY allowlist + ADMIN_CONFIRM patterns are accepted.
+        # Unknown commands are BLOCKED.  Set False to allow any non-blocked command
+        # with confirmation.
+        "allowlist_enabled": True,
+        # If True, only owner chat_id (telegram.owner_chat_id) can trigger shell_exec.
+        "require_owner": False,
+        # Additional patterns that require confirmation (on top of hard-coded ones).
+        # Each entry is a Python regex string.
+        "confirm_required_patterns": [],
+        # Additional patterns that are always blocked (on top of hard-coded ones).
+        "blocked_patterns": [],
+    },
 }
 
 
