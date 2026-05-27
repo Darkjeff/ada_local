@@ -109,7 +109,7 @@ DEFAULT_SETTINGS = {
         # with confirmation.
         "allowlist_enabled": True,
         # If True, only owner chat_id (telegram.owner_chat_id) can trigger shell_exec.
-        "require_owner": False,
+        "require_owner": True,
         # Additional patterns that require confirmation (on top of hard-coded ones).
         # Each entry is a Python regex string.
         "confirm_required_patterns": [],

@@ -447,7 +447,7 @@ class TelegramAdapter:
         print(f"[Telegram] Route: {route}")
 
         if route == "function_gemma":
-            response = self._call_with_tools(text, messages)
+            response = self._call_with_tools(text, messages, chat_id=chat_id)
         elif route == "vision":
             response = self._handle_vision(text, chat_id)
         else:
@@ -542,7 +542,7 @@ class TelegramAdapter:
             print(f"[Telegram] Vision error: {e}")
             return "Erreur lors de l'accès à la caméra."
 
-    def _call_with_tools(self, text: str, conversation_messages: list) -> str:
+    def _call_with_tools(self, text: str, conversation_messages: list, chat_id: int = 0) -> str:
         """Route through Ollama tool-calling, like voice_assistant._handle_function_call."""
         try:
             resp = requests.post(
@@ -595,6 +595,14 @@ class TelegramAdapter:
 
         if func_name == "passthrough":
             return self._call_llm(conversation_messages)
+
+        # Enforce shell_exec.require_owner: only owner can trigger shell commands via Telegram
+        if func_name == "shell_exec" and settings.get("shell_exec.require_owner", True):
+            owner_raw = settings.get("telegram.owner_chat_id", "")
+            owner_id = int(owner_raw) if owner_raw else None
+            if not owner_id or chat_id != owner_id:
+                print(f"[Telegram] shell_exec blocked for non-owner chat_id={chat_id}")
+                return "⛔ Les commandes shell sont réservées au propriétaire du bot."
 
         result = function_executor.execute(func_name, params)
         success = result.get("success", False)

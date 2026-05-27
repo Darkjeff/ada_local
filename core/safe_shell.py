@@ -3,9 +3,9 @@
 SafeShellExecutor — three-level shell command policy for ADA.
 
 Levels:
-  READ_ONLY     — pre-approved diagnostic commands, run immediately
+  READ_ONLY     — pre-approved diagnostic commands, run without shell (arg-list)
   ADMIN_CONFIRM — system-management commands, require confirmed=True
-  BLOCKED       — destructive / network commands, always refused
+  BLOCKED       — destructive / network / info-disclosure commands, always refused
 
 When allowlist_enabled=True (default), unknown commands fall into BLOCKED.
 When allowlist_enabled=False, unknown commands fall into ADMIN_CONFIRM.
@@ -14,6 +14,7 @@ When allowlist_enabled=False, unknown commands fall into ADMIN_CONFIRM.
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import sys
 from datetime import datetime
@@ -28,16 +29,21 @@ class ShellLevel(str, Enum):
     BLOCKED       = "blocked"
 
 
+# ── Shell metacharacter injection guard (checked before everything else) ──
+# Blocks command chaining: ; && || ` $( ${
+_SHELL_METACHAR_RE = re.compile(r"[;`]|&&|\|\||\$[({]")
+
+
 # ── Hard-coded lists (never overridable via settings) ─────────────────────
 
-# READ_ONLY: command must match at least one of these patterns
+# READ_ONLY: command must match at least one of these patterns.
+# Executed via arg-list (no shell) — metacharacters are inert at the OS level.
 _READ_ONLY_PATTERNS: list[re.Pattern] = [re.compile(p, re.I) for p in [
     r"^df(\s|$)",
     r"^free(\s|$)",
     r"^uptime$",
     r"^docker\s+ps(\s|$)",
     r"^docker\s+stats(\s|$)",
-    r"^docker\s+logs(\s|$)",
     r"^docker\s+inspect(\s|$)",
     r"^lsblk(\s|$)",
     r"^ip\s+(a|addr|link|route)(\s|$)",
@@ -54,21 +60,21 @@ _READ_ONLY_PATTERNS: list[re.Pattern] = [re.compile(p, re.I) for p in [
     r"^whoami$",
     r"^id$",
     r"^systemctl\s+status(\s|$)",
-    r"^journalctl\s+",
     r"^du\s+",
     r"^lsof\s+",
     r"^netstat\s+",
     r"^ss\s+",
     r"^ping\s+-c\s+\d",
     r"^mount$",       # list only (no arguments)
-    r"^env$",
-    r"^printenv(\s|$)",
 ]]
 
-# ADMIN_CONFIRM: these patterns promote to admin level (checked after READ_ONLY)
+# ADMIN_CONFIRM: these patterns require confirmed=True (checked after READ_ONLY).
+# docker logs and journalctl moved here — useful for debug, but sensitive output.
 _ADMIN_CONFIRM_PATTERNS: list[re.Pattern] = [re.compile(p, re.I) for p in [
     r"systemctl\s+(restart|start|stop|enable|disable)\b",
     r"docker\s+(restart|start|stop|rm|rmi|pull|run|exec)\b",
+    r"docker\s+logs\b",
+    r"journalctl\b",
     r"apt(-get)?\s+(update|upgrade|install|remove|purge)\b",
     r"pip\s+(install|uninstall)\b",
     r"mount\s+\S",    # mount with arguments
@@ -78,7 +84,8 @@ _ADMIN_CONFIRM_PATTERNS: list[re.Pattern] = [re.compile(p, re.I) for p in [
     r"crontab\b",
 ]]
 
-# BLOCKED: these patterns are always refused (checked first, highest priority)
+# BLOCKED: always refused — highest priority after metachar check.
+# env / printenv added: dump ALL environment variables = direct secret disclosure.
 _BLOCKED_PATTERNS: list[re.Pattern] = [re.compile(p, re.I) for p in [
     r"\brm\b",
     r"\bdd\b",
@@ -104,6 +111,8 @@ _BLOCKED_PATTERNS: list[re.Pattern] = [re.compile(p, re.I) for p in [
     r">\s*/dev/(?!null)",  # redirect to device (but allow /dev/null)
     r"\bdiskpart\b",
     r"\bmkdir\s+-p\s+/(?!(tmp|mnt|home|opt)\b)",  # mkdir -p on system dirs
+    r"^\s*env\s*$",       # env with no args = dump all env vars (secret disclosure)
+    r"\bprintenv\b",      # printenv = same risk
 ]]
 
 
@@ -116,6 +125,7 @@ class SafeShellExecutor:
         """
         Return (ShellLevel, reason_string) for a raw command string.
         Policy, from highest to lowest priority:
+          0. BLOCKED  — shell metacharacter injection (;, &&, ||, `, $(, ${)
           1. BLOCKED  — hard-coded + settings blocked_patterns
           2. ADMIN_CONFIRM — hard-coded + settings confirm_required_patterns
           3. READ_ONLY — hard-coded allowlist
@@ -123,6 +133,11 @@ class SafeShellExecutor:
              ADMIN_CONFIRM (unknown) — when allowlist_enabled=False
         """
         cmd = command.strip()
+
+        # 0. Metacharacter injection guard
+        m = _SHELL_METACHAR_RE.search(cmd)
+        if m:
+            return ShellLevel.BLOCKED, f"Shell metacharacter injection: {m.group()!r}"
 
         # 1. Blocked — hard-coded
         for pat in _BLOCKED_PATTERNS:
@@ -175,6 +190,9 @@ class SafeShellExecutor:
         """
         Execute command according to policy.
 
+        READ_ONLY  → subprocess arg-list (no shell, metacharacters are inert)
+        ADMIN_CONFIRM + confirmed=True → bash -c (shell, explicit user consent)
+
         Returns standard result dict:
           success (bool), message (str), data (dict | None)
           needs_confirmation (bool) — present and True when admin_confirm and not confirmed
@@ -216,12 +234,20 @@ class SafeShellExecutor:
                 "data": {"command": cmd, "level": level.value},
             }
 
-        # Execute (READ_ONLY or ADMIN_CONFIRM + confirmed)
+        # Build subprocess args
         timeout = min(timeout, 30)  # hard cap at 30s
-        if sys.platform == "win32":
-            cmd_args = ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd]
+        if level == ShellLevel.READ_ONLY:
+            # Arg-list — no shell interpretation, metacharacters are inert at OS level
+            try:
+                cmd_args = shlex.split(cmd)
+            except ValueError as exc:
+                return {"success": False, "message": f"Commande invalide : {exc}", "data": None}
         else:
-            cmd_args = ["bash", "-c", cmd]
+            # ADMIN_CONFIRM + confirmed: shell needed for complex admin commands
+            if sys.platform == "win32":
+                cmd_args = ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd]
+            else:
+                cmd_args = ["bash", "-c", cmd]
 
         try:
             proc = subprocess.run(
