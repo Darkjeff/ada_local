@@ -271,9 +271,17 @@ class TelegramAdapter:
         text = msg.get("text", "")
         photo = msg.get("photo")
 
-        # Check allowed users (if configured)
-        allowed = settings.get("telegram.allowed_users", [])
-        if allowed and chat_id not in allowed:
+        # Access control — default-deny once owner_chat_id is configured.
+        # Authorized set = owner + allowed_users.
+        # If nothing is configured yet, allow all (needed to run /myid for initial setup).
+        owner_raw = settings.get("telegram.owner_chat_id", "")
+        owner_id = int(owner_raw) if owner_raw else None
+        allowed_users: list = settings.get("telegram.allowed_users", [])
+        authorized: set[int] = set(allowed_users)
+        if owner_id:
+            authorized.add(owner_id)
+        if authorized and chat_id not in authorized:
+            print(f"[Telegram] Blocked unauthorized chat_id={chat_id}")
             return
 
         # Slash commands (strip @botname suffix e.g. /myid@ada_jeff_bot)
