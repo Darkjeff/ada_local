@@ -9,25 +9,10 @@ import random
 import threading
 import time
 import re
-import subprocess
-
-# Patterns that must never be executed regardless of context
-_SHELL_BLOCKLIST = [
-    r"format\s+[a-z]:",                      # disk format
-    r"rd\s+/s\s+/q\s+[a-z]:\\?$",           # recursive delete of drive root
-    r"rmdir\s+/s\s+/q\s+[a-z]:\\?$",
-    r"Remove-Item\s+-Recurse.*[a-z]:\\?$",   # PS recursive delete of drive root
-    r"del\s+/[fs].*\s+[a-z]:\\",            # del /f /s on drive root
-    r"shutdown\s+/[srh]",                    # system shutdown/restart/hibernate
-    r"net\s+user\s+administrator",           # privilege escalation
-    r"reg\s+delete\s+HKLM\\SYSTEM",         # critical registry deletion
-    r"bcdedit",                              # boot configuration
-    r"diskpart",                             # disk partitioning
-]
-_SHELL_BLOCKLIST_RE = [re.compile(p, re.IGNORECASE) for p in _SHELL_BLOCKLIST]
 
 from core.async_runner import run_async
 from core.settings_store import settings
+from core.safe_shell import safe_shell_executor
 
 
 @dataclass
@@ -750,63 +735,15 @@ class FunctionExecutor:
 
 
     def _shell_exec(self, params: Dict) -> Dict:
-        """Execute a shell command with safety checks (cross-platform)."""
-        import sys as _sys
+        """Delegate to SafeShellExecutor — three-level command policy."""
         command = params.get("command", "").strip()
         if not command:
             return {"success": False, "message": "No command provided.", "data": None}
 
-        # Safety: block destructive patterns
-        for pattern in _SHELL_BLOCKLIST_RE:
-            if pattern.search(command):
-                return {
-                    "success": False,
-                    "message": f"Commande bloquée pour des raisons de sécurité : '{command}'",
-                    "data": None,
-                }
+        confirmed: bool = bool(params.get("confirmed", False))
+        timeout: int = min(int(params.get("timeout", 30)), 30)
 
-        timeout = min(int(params.get("timeout", 30)), 120)
-
-        if _sys.platform == "win32":
-            cmd_args = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
-        else:
-            cmd_args = ["bash", "-c", command]
-
-        try:
-            result = subprocess.run(
-                cmd_args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                errors="replace",
-            )
-            stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
-            output = stdout or stderr or "(no output)"
-
-            # Truncate at 3000 chars to keep LLM context manageable
-            if len(output) > 3000:
-                output = output[:3000] + "\n… (output truncated)"
-
-            success = result.returncode == 0
-            return {
-                "success": success,
-                "message": output,
-                "data": {
-                    "command": command,
-                    "returncode": result.returncode,
-                    "stdout": stdout[:1500],
-                    "stderr": stderr[:500],
-                },
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "message": f"Commande interrompue après {timeout}s (timeout).",
-                "data": None,
-            }
-        except Exception as e:
-            return {"success": False, "message": f"Erreur d'exécution : {e}", "data": None}
+        return safe_shell_executor.execute(command, confirmed=confirmed, timeout=timeout)
 
 
     def _play_music(self, params: dict) -> dict:
