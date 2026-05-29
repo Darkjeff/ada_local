@@ -39,6 +39,8 @@ sounddevice>=0.5.0             # Audio playback interface
 soundfile>=0.13.0              # Audio file I/O
 numpy>=2.0.0                   # Numerical computing (audio processing)
 realtimestt>=0.3.0             # Real-time speech-to-text with wake word detection
+faster-whisper>=1.0.0          # Transcription engine for RealtimeSTT
+pvporcupine>=3.0.0             # Wake word detection (Porcupine) for RealtimeSTT
 PyAudio>=0.2.14                # Audio I/O for microphone access
 
 # -----------------------------------------------------
@@ -66,6 +68,9 @@ duckduckgo-search>=8.0.0       # DuckDuckGo search API (provides DDGS class)
 feedparser>=6.0.0              # RSS/Atom feed parsing for news fetching
 youtube-transcript-api>=0.6.0  # Fetch YouTube subtitles without audio download
 httpx>=0.28.0                  # Async HTTP client
+uvicorn>=0.31.0                # ASGI server for web plugin
+fastapi>=0.115.0               # Web framework for web plugin
+cryptography>=45.0.0           # SSL certificate generation
 
 # -----------------------------------------------------
 # System Utilities

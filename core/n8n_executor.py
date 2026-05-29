@@ -25,6 +25,7 @@ _WEBHOOK_TO_FUNC: dict[str, str] = {
     "get-info":        "get_system_info",
     "calendar-event":  "create_calendar_event",
     "weather":         "weather",
+    "shell-exec":      "shell_exec",
 }
 
 

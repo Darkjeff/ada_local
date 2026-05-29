@@ -68,6 +68,35 @@ class ConnectionTester(QThread):
             self.failed.emit(str(e))
 
 
+class DomoticzConnectionTester(QThread):
+    """Background thread to test Domoticz connection (supports Basic auth)."""
+    success = Signal()
+    failed = Signal(str)
+
+    def __init__(self, url: str, username: str = "", password: str = ""):
+        super().__init__()
+        self.url = url
+        self.username = username
+        self.password = password
+
+    def run(self):
+        try:
+            auth = (self.username, self.password) if self.username else None
+            response = requests.get(self.url, auth=auth, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "OK":
+                    self.success.emit()
+                else:
+                    self.failed.emit(f"Domoticz status: {data.get('status', '?')}")
+            else:
+                self.failed.emit(f"HTTP {response.status_code}")
+        except requests.exceptions.ConnectionError:
+            self.failed.emit("Connection refused")
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class ComboBoxCard(SettingCard):
     """Setting card with a ComboBox for selection."""
 
@@ -373,6 +402,25 @@ class NavidromeUrlInputCard(UrlInputCard):
             self._on_test_failed(str(e))
 
 
+class DomoticzUrlInputCard(UrlInputCard):
+    """URL input card that tests Domoticz via its /json.htm?type=command&param=getversion endpoint."""
+
+    def _test_connection(self):
+        url = self.url_input.text().strip()
+        if not url:
+            return
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("...")
+        user = settings.get("domoticz.username", "")
+        password = settings.get("domoticz.password", "")
+        test_url = f"{url.rstrip('/')}/json.htm?type=command&param=getversion"
+        self.tester = DomoticzConnectionTester(test_url, user, password)
+        self.tester.success.connect(self._on_test_success)
+        self.tester.failed.connect(self._on_test_failed)
+        self.tester.finished.connect(self._on_test_done)
+        self.tester.start()
+
+
 class SettingsTab(ScrollArea):
     """Comprehensive Settings Tab with model selection and preferences."""
 
@@ -413,6 +461,16 @@ class SettingsTab(ScrollArea):
 
         self.language_card = LanguageCard(self.personal_group)
         self.personal_group.addSettingCard(self.language_card)
+
+        self.user_name_card = TextInputCard(
+            FIF.PEOPLE,
+            tr("settings.user_name"),
+            tr("settings.user_name_desc"),
+            "user.name",
+            "Jeff",
+            self.personal_group,
+        )
+        self.personal_group.addSettingCard(self.user_name_card)
 
         self.expandLayout.addWidget(self.personal_group)
 
@@ -491,6 +549,49 @@ class SettingsTab(ScrollArea):
         self.kasa_test_card.clicked.connect(self._on_kasa_scan)
         self.kasa_group.addSettingCard(self.kasa_test_card)
         self.expandLayout.addWidget(self.kasa_group)
+
+        # ── Domoticz ──────────────────────────────────────────────────
+        self.domoticz_group = SettingCardGroup(tr("settings.domoticz"), self.scrollWidget)
+
+        self.domoticz_enabled_card = SwitchCard(
+            FIF.WIFI,
+            tr("settings.domoticz_enabled"),
+            tr("settings.domoticz_enabled_desc"),
+            "domoticz.enabled",
+            self.domoticz_group
+        )
+        self.domoticz_group.addSettingCard(self.domoticz_enabled_card)
+
+        self.domoticz_url_card = DomoticzUrlInputCard(
+            FIF.LINK,
+            tr("settings.domoticz_url"),
+            tr("settings.domoticz_url_desc"),
+            "domoticz.url",
+            self.domoticz_group
+        )
+        self.domoticz_group.addSettingCard(self.domoticz_url_card)
+
+        self.domoticz_user_card = TextInputCard(
+            FIF.PEOPLE,
+            tr("settings.domoticz_user"),
+            tr("settings.domoticz_user_desc"),
+            "domoticz.username",
+            "admin",
+            self.domoticz_group
+        )
+        self.domoticz_group.addSettingCard(self.domoticz_user_card)
+
+        self.domoticz_password_card = TextInputCard(
+            FIF.HIDE,
+            tr("settings.domoticz_password"),
+            tr("settings.domoticz_password_desc"),
+            "domoticz.password",
+            "",
+            self.domoticz_group
+        )
+        self.domoticz_password_card.input.setEchoMode(LineEdit.EchoMode.Password)
+        self.domoticz_group.addSettingCard(self.domoticz_password_card)
+        self.expandLayout.addWidget(self.domoticz_group)
 
         # ── Navidrome ─────────────────────────────────────────────────
         self.navidrome_group = SettingCardGroup(tr("settings.navidrome"), self.scrollWidget)

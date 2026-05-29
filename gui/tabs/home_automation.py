@@ -235,6 +235,7 @@ class HomeAutomationTab(QWidget):
         self._build_ui()
         self._start_badge_check()
         self._load_entities()
+        settings.setting_changed.connect(self._on_setting_changed)
 
         from PySide6.QtWidgets import QApplication
         QApplication.instance().aboutToQuit.connect(self._cleanup)
@@ -566,6 +567,16 @@ class HomeAutomationTab(QWidget):
         self._show_grid_message("⏳ Refreshing…", "#6e7a8e")
         self._start_badge_check()
         self._load_entities()
+
+    def _on_setting_changed(self, key: str, value):
+        """Auto-refresh when a provider is enabled or disabled."""
+        _PROVIDER_ENABLED_KEYS = (
+            "domoticz.enabled",
+            "home_assistant.enabled",
+            "kasa.enabled",
+        )
+        if key in _PROVIDER_ENABLED_KEYS:
+            self._on_refresh()
 
     def _toggle_edit_mode(self):
         self._edit_mode = not self._edit_mode

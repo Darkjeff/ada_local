@@ -1,6 +1,17 @@
 {
   "settings": {
     "personalization": "Personalization",
+    "user_name": "Your first name",
+    "user_name_desc": "Used in briefings, memory consolidation and Telegram",
+    "domoticz": "Domoticz",
+    "domoticz_enabled": "Enable Domoticz",
+    "domoticz_enabled_desc": "Control Domoticz devices via ADA",
+    "domoticz_url": "Domoticz URL",
+    "domoticz_url_desc": "e.g. http://192.168.1.10:8080",
+    "domoticz_user": "Username",
+    "domoticz_user_desc": "Domoticz account (leave empty if no auth)",
+    "domoticz_password": "Password",
+    "domoticz_password_desc": "Domoticz account password",
     "theme": "Application Theme",
     "theme_desc": "Change the appearance of the application",
     "language": "Language",
@@ -118,6 +129,7 @@
     "music": "Music",
     "library": "Library",
     "infrastructure": "Infrastructure",
+    "marketing": "Marketing",
     "settings": "Settings"
   },
   "music": {

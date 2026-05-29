@@ -5,6 +5,23 @@ Centralized configuration for Pocket AI.
 # --- Model Configuration ---
 RESPONDER_MODEL = "qwen3:1.7b"
 OLLAMA_URL = "http://localhost:11434/api"
+
+# --- Marketing / MargePro ---
+MARKETING_MODEL = RESPONDER_MODEL  # Même modèle par défaut, remplace si besoin
+
+# Contexte produit MargePro — chargé dynamiquement depuis skills/margepro/SKILL.md
+def _load_margepro_context() -> str:
+    import re as _re
+    from pathlib import Path as _Path
+    skill_path = _Path(__file__).parent / "skills" / "margepro" / "SKILL.md"
+    try:
+        raw = skill_path.read_text(encoding="utf-8")
+        m = _re.match(r"^---[ \t]*\r?\n.*?\r?\n---[ \t]*\r?\n(.*)", raw, _re.DOTALL)
+        return m.group(1).strip() if m else raw.strip()
+    except Exception:
+        return ""
+
+MARGEPRO_CONTEXT = _load_margepro_context()
 LOCAL_ROUTER_PATH = "./merged_model"
 HF_ROUTER_REPO = "nlouis/pocket-ai-router"  # Hugging Face repo for auto-download
 MAX_HISTORY = 20
