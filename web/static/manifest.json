@@ -1,0 +1,9 @@
+{
+  "name": "ADA",
+  "short_name": "ADA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1524",
+  "theme_color": "#33b5e5",
+  "icons": []
+}
