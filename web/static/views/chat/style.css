@@ -1,0 +1,62 @@
+/* Vue Chat — Styles */
+
+.chat-view { flex-direction: column; overflow: hidden; }
+
+/* ── Messages ────────────────────────────────────────────────── */
+
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.msg {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: .95rem;
+  word-break: break-word;
+  white-space: pre-wrap;
+  animation: fadeIn .15s ease;
+}
+
+@keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; } }
+
+.msg.user { align-self: flex-end;   background: var(--user-bg); border-bottom-right-radius: 4px; }
+.msg.ada  { align-self: flex-start; background: var(--ada-bg);  border-bottom-left-radius: 4px; }
+.msg.ada.streaming { opacity: .85; }
+
+/* ── Typing indicator ────────────────────────────────────────── */
+
+#typing {
+  display: none;
+  align-self: flex-start;
+  background: var(--ada-bg);
+  border-radius: var(--radius);
+  border-bottom-left-radius: 4px;
+  padding: 12px 16px;
+  margin: 0 16px 4px;
+  gap: 5px;
+  flex-shrink: 0;
+}
+#typing.show { display: flex; }
+#typing span {
+  width: 7px; height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: bounce .9s infinite;
+}
+#typing span:nth-child(2) { animation-delay: .15s; }
+#typing span:nth-child(3) { animation-delay: .30s; }
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30%            { transform: translateY(-6px); }
+}
+
+@media (min-width: 1100px) {
+  #messages { padding: 18px 22px; gap: 10px; }
+  .msg { max-width: min(70ch, 76%); font-size: .94rem; }
+}

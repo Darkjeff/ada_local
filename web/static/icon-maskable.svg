@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <!-- Fond plein bord-à-bord pour l'icône maskable (safe zone = 80% du centre) -->
+  <rect width="192" height="192" fill="#0f0f17"/>
+  <text x="96" y="122" font-family="system-ui, sans-serif" font-weight="700"
+        font-size="80" text-anchor="middle" fill="#7b68ee">A</text>
+</svg>

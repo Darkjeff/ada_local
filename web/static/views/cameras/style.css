@@ -1,0 +1,157 @@
+/* Vue Caméras — styles */
+
+.cam-root {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Toolbar ──────────────────────────────────────────── */
+.cam-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.cam-title {
+  font-weight: 700;
+  font-size: 1rem;
+  flex: 1;
+}
+.cam-ts-label {
+  font-size: .8rem;
+  color: var(--text-dim);
+}
+.cam-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(123,104,238,.12);
+  border: 1px solid rgba(123,104,238,.3);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: .85rem;
+  transition: background .15s;
+}
+.cam-refresh-btn:hover { background: rgba(123,104,238,.25); }
+
+/* ── Grid ─────────────────────────────────────────────── */
+.cam-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-content: start;
+}
+.cam-empty {
+  grid-column: 1 / -1;
+  color: var(--text-dim);
+  font-size: .9rem;
+  text-align: center;
+  padding: 40px 0;
+  line-height: 1.7;
+}
+
+/* ── Camera card ──────────────────────────────────────── */
+.cam-card {
+  background: var(--surface);
+  border: 1px solid rgba(123,104,238,.18);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cam-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #0a0a0f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cam-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity .3s;
+}
+.cam-img.cam-loading { opacity: .5; }
+.cam-img.cam-error   { opacity: .15; filter: grayscale(1); }
+.cam-overlay-name {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 6px 10px;
+  background: linear-gradient(transparent, rgba(0,0,0,.7));
+  font-size: .82rem;
+  font-weight: 600;
+  color: #fff;
+  text-transform: capitalize;
+}
+
+/* ── Desktop : 2 colonnes ─────────────────────────────── */
+@media (min-width: 700px) {
+  .cam-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1400px) {
+  .cam-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ── Barre d'analyse ──────────────────────────────────── */
+.cam-analyze-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+.cam-question {
+  flex: 1;
+  background: rgba(0,0,0,.3);
+  border: 1px solid rgba(123,104,238,.2);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: .82rem;
+  padding: 6px 10px;
+  outline: none;
+}
+.cam-question:focus { border-color: var(--accent); }
+.cam-analyze-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  background: rgba(123,104,238,.15);
+  border: 1px solid rgba(123,104,238,.3);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: .82rem;
+  cursor: pointer;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.cam-analyze-btn:hover    { background: rgba(123,104,238,.28); }
+.cam-analyze-btn:disabled { opacity: .5; cursor: wait; }
+
+/* ── Résultat ─────────────────────────────────────────── */
+.cam-result {
+  padding: 10px 12px;
+  font-size: .88rem;
+  color: var(--text);
+  line-height: 1.55;
+  border-top: 1px solid rgba(255,255,255,.06);
+  white-space: pre-wrap;
+}
+.cam-result--hidden { display: none; }
+.cam-result-thinking {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: .82rem;
+}
