@@ -78,7 +78,7 @@ async function _analyzeCamera(idx, question, resultEl, btnEl) {
 
 function _buildGrid() {
   if (!_cameras.length) {
-    return '<p class="cam-empty">Aucune caméra disponible.<br>Vérifiez la configuration Domoticz.</p>';
+    return '<p class="cam-empty">Aucune caméra disponible.<br>Vérifiez la configuration Domoticz ou Home Assistant.</p>';
   }
   return _cameras.map(c => `
     <div class="cam-card" data-cam-idx="${c.idx}">

@@ -1129,24 +1129,49 @@ async def _fetch_domoticz_cameras() -> list[dict]:
     return data.get("result", [])
 
 
+def _ha_cameras_as_list() -> list[dict]:
+    """Retourne les caméras HA sous le même format que Domoticz."""
+    from core.camera_manager import camera_manager
+    camera_manager.refresh()
+    return [
+        {"idx": ep.entity_id, "name": ep.friendly_name, "enabled": True}
+        for ep in camera_manager.list_endpoints()
+    ]
+
+
 @app.get("/api/cameras")
 async def list_cameras():
-    """Liste des caméras configurées dans Domoticz (sans mots de passe)."""
+    """Liste des caméras : Domoticz en priorité, HA en fallback."""
     try:
         cams = await _fetch_domoticz_cameras()
-        return {
-            "cameras": [
-                {"idx": c["idx"], "name": c["Name"], "enabled": c.get("Enabled") == "true"}
-                for c in cams
-            ]
-        }
+        if cams:
+            return {
+                "cameras": [
+                    {"idx": c["idx"], "name": c["Name"], "enabled": c.get("Enabled") == "true"}
+                    for c in cams
+                ]
+            }
+    except Exception:
+        pass
+    # Fallback Home Assistant
+    try:
+        return {"cameras": _ha_cameras_as_list(), "source": "ha"}
     except Exception as exc:
         return {"cameras": [], "error": str(exc)}
 
 
 @app.get("/api/cameras/{idx}/snapshot")
 async def camera_snapshot(idx: str):
-    """Proxy JPEG du snapshot Reolink pour la caméra Domoticz {idx}."""
+    """Proxy JPEG du snapshot — Domoticz/Reolink ou HA selon la source."""
+    # Caméra HA (entity_id commence par "camera.")
+    if str(idx).startswith("camera."):
+        jpg = ha_manager.get_camera_snapshot(idx)
+        if jpg is None:
+            raise HTTPException(status_code=502, detail="Snapshot HA indisponible.")
+        return Response(content=jpg, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store, no-cache"})
+
+    # Caméra Domoticz
     try:
         cams = await _fetch_domoticz_cameras()
     except Exception as exc:
@@ -1180,26 +1205,30 @@ async def camera_analyze(idx: str, req: CameraAnalyzeRequest):
     import base64
     from config import OLLAMA_URL
 
-    # 1. Récupérer la config caméra
-    try:
-        cams = await _fetch_domoticz_cameras()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Domoticz inaccessible : {exc}")
-    cam = next((c for c in cams if str(c.get("idx")) == str(idx)), None)
-    if not cam:
-        raise HTTPException(status_code=404, detail=f"Caméra {idx} introuvable.")
-
-    # 2. Snapshot
-    protocol = "https" if cam.get("Protocol", 0) == 1 else "http"
-    snap_url = f"{protocol}://{cam['Address']}:{cam['Port']}/{cam['ImageURL']}"
-    try:
-        async with httpx.AsyncClient(timeout=12, verify=_REOLINK_SSL) as client:
-            snap = await client.get(snap_url)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Caméra injoignable : {exc}")
-    if snap.status_code != 200:
-        raise HTTPException(status_code=502, detail="Snapshot indisponible.")
-    img_b64 = base64.b64encode(snap.content).decode()
+    # 1. Récupérer le snapshot (HA ou Domoticz)
+    if str(idx).startswith("camera."):
+        jpg = ha_manager.get_camera_snapshot(idx)
+        if jpg is None:
+            raise HTTPException(status_code=502, detail="Snapshot HA indisponible.")
+        img_b64 = base64.b64encode(jpg).decode()
+    else:
+        try:
+            cams = await _fetch_domoticz_cameras()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Domoticz inaccessible : {exc}")
+        cam = next((c for c in cams if str(c.get("idx")) == str(idx)), None)
+        if not cam:
+            raise HTTPException(status_code=404, detail=f"Caméra {idx} introuvable.")
+        protocol = "https" if cam.get("Protocol", 0) == 1 else "http"
+        snap_url = f"{protocol}://{cam['Address']}:{cam['Port']}/{cam['ImageURL']}"
+        try:
+            async with httpx.AsyncClient(timeout=12, verify=_REOLINK_SSL) as client:
+                snap = await client.get(snap_url)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Caméra injoignable : {exc}")
+        if snap.status_code != 200:
+            raise HTTPException(status_code=502, detail="Snapshot indisponible.")
+        img_b64 = base64.b64encode(snap.content).decode()
 
     # 3. Stream gemma4 vision
     vision_model = settings.get("models.vision", "gemma4:latest") or "gemma4:latest"
