@@ -301,8 +301,7 @@ class TelegramAdapter:
             if res.get("success"):
                 icon = "💡" if action == "on" else "🌑"
                 label = "allumée" if action == "on" else "éteinte"
-                self._send(chat_id, f"{icon} Lumière *{room}* {label}.",
-                           parse_mode="Markdown")
+                self._send(chat_id, f"{icon} Lumière {room} {label}.")
             else:
                 self._send(chat_id, f"⚠️ {res.get('message', 'Erreur contrôle lumière.')}")
             return
