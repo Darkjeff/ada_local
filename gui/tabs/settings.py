@@ -3,10 +3,13 @@ Comprehensive Settings Tab with model selection, connection settings, and prefer
 """
 
 from config import LOCAL_ROUTER_PATH, RESPONDER_MODEL
+import config as _config
 
 import requests
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QHBoxLayout
+    QWidget, QVBoxLayout, QLabel, QHBoxLayout,
+    QDialog, QDialogButtonBox, QListWidget, QListWidgetItem, QFormLayout,
+    QLineEdit as _QLineEdit, QComboBox as _QComboBox, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QFont
@@ -358,6 +361,25 @@ class HAUrlInputCard(UrlInputCard):
         self.tester.start()
 
 
+class DomoticzUrlInputCard(UrlInputCard):
+    """URL input card that tests Domoticz via its /json.htm?type=command&param=getversion endpoint."""
+
+    def _test_connection(self):
+        url = self.url_input.text().strip()
+        if not url:
+            return
+        self.test_btn.setEnabled(False)
+        self.test_btn.setText("...")
+        user = settings.get("domoticz.username", "")
+        password = settings.get("domoticz.password", "")
+        test_url = f"{url.rstrip('/')}/json.htm?type=command&param=getversion"
+        self.tester = DomoticzConnectionTester(test_url, user, password)
+        self.tester.success.connect(self._on_test_success)
+        self.tester.failed.connect(self._on_test_failed)
+        self.tester.finished.connect(self._on_test_done)
+        self.tester.start()
+
+
 class NavidromeUrlInputCard(UrlInputCard):
     """URL input card that tests Navidrome via Subsonic ping.view."""
 
@@ -402,23 +424,143 @@ class NavidromeUrlInputCard(UrlInputCard):
             self._on_test_failed(str(e))
 
 
-class DomoticzUrlInputCard(UrlInputCard):
-    """URL input card that tests Domoticz via its /json.htm?type=command&param=getversion endpoint."""
+# MODULE_SOCIETE: dialog de gestion des sociétés dans les settings
+class SocieteManagerDialog(QDialog):
+    """Dialog pour lister, ajouter et supprimer des sociétés."""
 
-    def _test_connection(self):
-        url = self.url_input.text().strip()
-        if not url:
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Gérer les sociétés")
+        self.resize(600, 480)
+        self._setup_ui()
+        self._load_companies()
+
+    def _setup_ui(self):
+        from qfluentwidgets import PrimaryPushButton as _PrimaryBtn, PushButton as _PushBtn, BodyLabel
+        from PySide6.QtWidgets import QSplitter
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        # ── Liste ──────────────────────────────────────────────
+        lbl = BodyLabel("Sociétés enregistrées :")
+        layout.addWidget(lbl)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setMinimumHeight(150)
+        layout.addWidget(self.list_widget)
+
+        del_btn = _PushBtn("✕  Supprimer la sélection")
+        del_btn.clicked.connect(self._on_delete)
+        layout.addWidget(del_btn)
+
+        # ── Séparateur ─────────────────────────────────────────
+        sep = QLabel("─" * 60)
+        sep.setStyleSheet("color: rgba(255,255,255,.15);")
+        layout.addWidget(sep)
+
+        # ── Formulaire ajout ───────────────────────────────────
+        form_lbl = BodyLabel("Ajouter une nouvelle société :")
+        layout.addWidget(form_lbl)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+
+        self.f_id      = _QLineEdit(); self.f_id.setPlaceholderText("ID unique (ex: acme)")
+        self.f_name    = _QLineEdit(); self.f_name.setPlaceholderText("Nom affiché *")
+        self.f_logo    = _QLineEdit("🏢"); self.f_logo.setMaximumWidth(80)
+        self.f_color   = _QLineEdit("#5E6AD2"); self.f_color.setMaximumWidth(100)
+        self.f_email   = _QLineEdit(); self.f_email.setPlaceholderText("email@exemple.com")
+        self.f_phone   = _QLineEdit(); self.f_phone.setPlaceholderText("+33 1 23 45 67 89")
+        self.f_website = _QLineEdit(); self.f_website.setPlaceholderText("https://…")
+        self.f_type    = _QComboBox(); self.f_type.addItems(["SARL", "SAS", "EI", "SCI", "Holding", "Autre"])
+        self.f_status  = _QComboBox(); self.f_status.addItems(["active", "archive"])
+
+        form.addRow("ID *",      self.f_id)
+        form.addRow("Nom *",     self.f_name)
+        form.addRow("Logo",      self.f_logo)
+        form.addRow("Couleur",   self.f_color)
+        form.addRow("Forme juridique", self.f_type)
+        form.addRow("Statut",    self.f_status)
+        form.addRow("Email",     self.f_email)
+        form.addRow("Téléphone", self.f_phone)
+        form.addRow("Site web",  self.f_website)
+        layout.addLayout(form)
+
+        self.status_lbl = QLabel("")
+        self.status_lbl.setStyleSheet("color: #4ade80; font-size: 12px;")
+        layout.addWidget(self.status_lbl)
+
+        add_btn = _PrimaryBtn("＋  Ajouter la société")
+        add_btn.clicked.connect(self._on_add)
+        layout.addWidget(add_btn)
+
+        # ── Fermer ─────────────────────────────────────────────
+        close_box = QDialogButtonBox(QDialogButtonBox.Close)
+        close_box.rejected.connect(self.close)
+        layout.addWidget(close_box)
+
+    def _load_companies(self):
+        self.list_widget.clear()
+        try:
+            from core.societe.company_model import company_model
+            companies = company_model.list_companies()
+            for c in companies:
+                item = QListWidgetItem(f"{c.get('logo','🏢')}  {c['name']}  [{c['id']}]  • {c.get('type','')}")
+                item.setData(256, c['id'])  # Qt.UserRole = 256
+                self.list_widget.addItem(item)
+            if not companies:
+                self.list_widget.addItem("(aucune société)")
+        except Exception as e:
+            self.list_widget.addItem(f"Erreur chargement : {e}")
+
+    def _on_delete(self):
+        item = self.list_widget.currentItem()
+        if not item:
             return
-        self.test_btn.setEnabled(False)
-        self.test_btn.setText("...")
-        user = settings.get("domoticz.username", "")
-        password = settings.get("domoticz.password", "")
-        test_url = f"{url.rstrip('/')}/json.htm?type=command&param=getversion"
-        self.tester = DomoticzConnectionTester(test_url, user, password)
-        self.tester.success.connect(self._on_test_success)
-        self.tester.failed.connect(self._on_test_failed)
-        self.tester.finished.connect(self._on_test_done)
-        self.tester.start()
+        cid = item.data(256)
+        if not cid:
+            return
+        try:
+            from core.societe.company_model import company_model
+            company_model.delete_company(cid)
+            self._load_companies()
+            self.status_lbl.setText(f"Société '{cid}' supprimée.")
+            self.status_lbl.setStyleSheet("color: #f87171; font-size: 12px;")
+        except Exception as e:
+            self.status_lbl.setText(f"Erreur : {e}")
+            self.status_lbl.setStyleSheet("color: #f87171; font-size: 12px;")
+
+    def _on_add(self):
+        cid   = self.f_id.text().strip()
+        name  = self.f_name.text().strip()
+        if not cid or not name:
+            self.status_lbl.setText("ID et Nom sont obligatoires.")
+            self.status_lbl.setStyleSheet("color: #f87171; font-size: 12px;")
+            return
+        try:
+            from core.societe.company_model import company_model
+            company_model.create_company({
+                "id": cid, "name": name,
+                "logo":    self.f_logo.text().strip() or "🏢",
+                "color":   self.f_color.text().strip() or "#5E6AD2",
+                "type":    self.f_type.currentText(),
+                "status":  self.f_status.currentText(),
+                "email":   self.f_email.text().strip(),
+                "phone":   self.f_phone.text().strip(),
+                "website": self.f_website.text().strip(),
+            })
+            self._load_companies()
+            self.status_lbl.setText(f"✓ Société '{name}' ajoutée.")
+            self.status_lbl.setStyleSheet("color: #4ade80; font-size: 12px;")
+            # Reset form
+            for w in [self.f_id, self.f_name, self.f_email, self.f_phone, self.f_website]:
+                w.clear()
+            self.f_logo.setText("🏢")
+            self.f_color.setText("#5E6AD2")
+        except Exception as e:
+            self.status_lbl.setText(f"Erreur : {e}")
+            self.status_lbl.setStyleSheet("color: #f87171; font-size: 12px;")
 
 
 class SettingsTab(ScrollArea):
@@ -448,6 +590,16 @@ class SettingsTab(ScrollArea):
         # ── Personalization ───────────────────────────────────────────
         self.personal_group = SettingCardGroup(tr("settings.personalization"), self.scrollWidget)
 
+        self.user_name_card = TextInputCard(
+            FIF.PEOPLE,
+            tr("settings.user_name"),
+            tr("settings.user_name_desc"),
+            "user.name",
+            "Aurelien",
+            self.personal_group
+        )
+        self.personal_group.addSettingCard(self.user_name_card)
+
         self.theme_card = ComboBoxCard(
             FIF.BRUSH,
             tr("settings.theme"),
@@ -461,16 +613,6 @@ class SettingsTab(ScrollArea):
 
         self.language_card = LanguageCard(self.personal_group)
         self.personal_group.addSettingCard(self.language_card)
-
-        self.user_name_card = TextInputCard(
-            FIF.PEOPLE,
-            tr("settings.user_name"),
-            tr("settings.user_name_desc"),
-            "user.name",
-            "Jeff",
-            self.personal_group,
-        )
-        self.personal_group.addSettingCard(self.user_name_card)
 
         self.expandLayout.addWidget(self.personal_group)
 
@@ -549,49 +691,6 @@ class SettingsTab(ScrollArea):
         self.kasa_test_card.clicked.connect(self._on_kasa_scan)
         self.kasa_group.addSettingCard(self.kasa_test_card)
         self.expandLayout.addWidget(self.kasa_group)
-
-        # ── Domoticz ──────────────────────────────────────────────────
-        self.domoticz_group = SettingCardGroup(tr("settings.domoticz"), self.scrollWidget)
-
-        self.domoticz_enabled_card = SwitchCard(
-            FIF.WIFI,
-            tr("settings.domoticz_enabled"),
-            tr("settings.domoticz_enabled_desc"),
-            "domoticz.enabled",
-            self.domoticz_group
-        )
-        self.domoticz_group.addSettingCard(self.domoticz_enabled_card)
-
-        self.domoticz_url_card = DomoticzUrlInputCard(
-            FIF.LINK,
-            tr("settings.domoticz_url"),
-            tr("settings.domoticz_url_desc"),
-            "domoticz.url",
-            self.domoticz_group
-        )
-        self.domoticz_group.addSettingCard(self.domoticz_url_card)
-
-        self.domoticz_user_card = TextInputCard(
-            FIF.PEOPLE,
-            tr("settings.domoticz_user"),
-            tr("settings.domoticz_user_desc"),
-            "domoticz.username",
-            "admin",
-            self.domoticz_group
-        )
-        self.domoticz_group.addSettingCard(self.domoticz_user_card)
-
-        self.domoticz_password_card = TextInputCard(
-            FIF.HIDE,
-            tr("settings.domoticz_password"),
-            tr("settings.domoticz_password_desc"),
-            "domoticz.password",
-            "",
-            self.domoticz_group
-        )
-        self.domoticz_password_card.input.setEchoMode(LineEdit.EchoMode.Password)
-        self.domoticz_group.addSettingCard(self.domoticz_password_card)
-        self.expandLayout.addWidget(self.domoticz_group)
 
         # ── Navidrome ─────────────────────────────────────────────────
         self.navidrome_group = SettingCardGroup(tr("settings.navidrome"), self.scrollWidget)
@@ -691,6 +790,50 @@ class SettingsTab(ScrollArea):
         self.ha_group.addSettingCard(self.ha_door_alert_card)
 
         self.expandLayout.addWidget(self.ha_group)
+
+        # ── Domoticz ──────────────────────────────────────────────────
+        self.domoticz_group = SettingCardGroup(tr("settings.domoticz"), self.scrollWidget)
+
+        self.domoticz_enabled_card = SwitchCard(
+            FIF.WIFI,
+            tr("settings.domoticz_enabled"),
+            tr("settings.domoticz_enabled_desc"),
+            "domoticz.enabled",
+            self.domoticz_group
+        )
+        self.domoticz_group.addSettingCard(self.domoticz_enabled_card)
+
+        self.domoticz_url_card = DomoticzUrlInputCard(
+            FIF.LINK,
+            tr("settings.domoticz_url"),
+            tr("settings.domoticz_url_desc"),
+            "domoticz.url",
+            self.domoticz_group
+        )
+        self.domoticz_group.addSettingCard(self.domoticz_url_card)
+
+        self.domoticz_user_card = TextInputCard(
+            FIF.PEOPLE,
+            tr("settings.domoticz_user"),
+            tr("settings.domoticz_user_desc"),
+            "domoticz.username",
+            "admin",
+            self.domoticz_group
+        )
+        self.domoticz_group.addSettingCard(self.domoticz_user_card)
+
+        self.domoticz_password_card = TextInputCard(
+            FIF.HIDE,
+            tr("settings.domoticz_password"),
+            tr("settings.domoticz_password_desc"),
+            "domoticz.password",
+            "••••••••",
+            self.domoticz_group
+        )
+        self.domoticz_password_card.input.setEchoMode(LineEdit.EchoMode.Password)
+        self.domoticz_group.addSettingCard(self.domoticz_password_card)
+
+        self.expandLayout.addWidget(self.domoticz_group)
 
         # ── Voice & Audio ─────────────────────────────────────────────
         self.voice_group = SettingCardGroup(tr("settings.voice"), self.scrollWidget)
@@ -830,6 +973,31 @@ class SettingsTab(ScrollArea):
         )
         self.general_group.addSettingCard(self.auto_news_card)
         self.expandLayout.addWidget(self.general_group)
+
+        # MODULE_SOCIETE: groupe activation + gestion sociétés ─────────────
+        if _config.MODULES_ENABLED.get("societe", False) or settings.get("modules.societe"):
+            self.societe_group = SettingCardGroup("Sociétés CRM", self.scrollWidget)
+
+            self.societe_enabled_card = SwitchCard(
+                FIF.PEOPLE,
+                "Activer le module Sociétés",
+                "Active le tableau de bord CRM (redémarrage recommandé)",
+                "modules.societe",
+                self.societe_group,
+            )
+            self.societe_enabled_card.checked_changed.connect(self._on_societe_toggle)
+            self.societe_group.addSettingCard(self.societe_enabled_card)
+
+            self.societe_manage_card = PushSettingCard(
+                "Gérer",
+                FIF.PEOPLE,
+                "Ajouter / Supprimer des sociétés",
+                "Ouvre le gestionnaire de sociétés",
+                self.societe_group,
+            )
+            self.societe_manage_card.clicked.connect(self._on_societe_manage)
+            self.societe_group.addSettingCard(self.societe_manage_card)
+            self.expandLayout.addWidget(self.societe_group)
 
         # ── About ─────────────────────────────────────────────────────
         self.about_group = SettingCardGroup(tr("settings.about"), self.scrollWidget)
@@ -977,6 +1145,22 @@ class SettingsTab(ScrollArea):
             orient=Qt.Horizontal, isClosable=True,
             position=InfoBarPosition.TOP, duration=5000, parent=self.window()
         )
+
+    # MODULE_SOCIETE: handlers groupe sociétés ─────────────────────────────
+    def _on_societe_toggle(self, enabled: bool):
+        """Mise à jour du flag en mémoire + info redémarrage."""
+        _config.MODULES_ENABLED["societe"] = enabled
+        InfoBar.info(
+            title="Module Sociétés",
+            content="Activé ✓" if enabled else "Désactivé — redémarrez pour appliquer.",
+            orient=Qt.Horizontal, isClosable=True,
+            position=InfoBarPosition.TOP, duration=4000, parent=self.window()
+        )
+
+    def _on_societe_manage(self):
+        """Ouvre le dialog de gestion des sociétés."""
+        dlg = SocieteManagerDialog(self.window())
+        dlg.exec()
 
     def _fetch_models(self):
         url = settings.get("ollama_url", "http://localhost:11434")

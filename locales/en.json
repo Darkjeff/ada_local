@@ -3,15 +3,6 @@
     "personalization": "Personalization",
     "user_name": "Your first name",
     "user_name_desc": "Used in briefings, memory consolidation and Telegram",
-    "domoticz": "Domoticz",
-    "domoticz_enabled": "Enable Domoticz",
-    "domoticz_enabled_desc": "Control Domoticz devices via ADA",
-    "domoticz_url": "Domoticz URL",
-    "domoticz_url_desc": "e.g. http://192.168.1.10:8080",
-    "domoticz_user": "Username",
-    "domoticz_user_desc": "Domoticz account (leave empty if no auth)",
-    "domoticz_password": "Password",
-    "domoticz_password_desc": "Domoticz account password",
     "theme": "Application Theme",
     "theme_desc": "Change the appearance of the application",
     "language": "Language",
@@ -58,6 +49,15 @@
     "kasa_scanning": "Scanning…",
     "kasa_found": "Found {count} Kasa device(s)",
     "kasa_none": "No Kasa devices found on the network",
+    "domoticz": "Domoticz",
+    "domoticz_enabled": "Enable Domoticz",
+    "domoticz_enabled_desc": "Control Domoticz devices via ADA",
+    "domoticz_url": "Domoticz URL",
+    "domoticz_url_desc": "e.g. http://192.168.1.10:8080",
+    "domoticz_user": "Username",
+    "domoticz_user_desc": "Domoticz account (leave empty if no auth)",
+    "domoticz_password": "Password",
+    "domoticz_password_desc": "Domoticz account password",
     "voice": "Voice & Audio",
     "tts_voice": "TTS Voice",
     "tts_voice_desc": "Voice model for text-to-speech ({count} installed)",
@@ -130,7 +130,8 @@
     "library": "Library",
     "infrastructure": "Infrastructure",
     "marketing": "Marketing",
-    "settings": "Settings"
+    "settings": "Settings",
+    "societes": "Companies"
   },
   "music": {
     "default_player": "Default player",
@@ -144,9 +145,7 @@
     "username": "Username",
     "username_desc": "Calibre-Web username",
     "password": "Password",
-    "password_desc": "Calibre-Web password",
-    "db_path": "metadata.db path",
-    "db_path_desc": "Local path to the Calibre database (e.g. /mnt/nas/Calibre\\ Library/metadata.db). More reliable than web scraping."
+    "password_desc": "Calibre-Web password"
   },
   "senses": {
     "vision": "Vision",

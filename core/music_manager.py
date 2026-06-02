@@ -13,7 +13,7 @@ class MusicManager:
 
     def _auth(self) -> dict:
         return {
-            "u": settings.get("navidrome.user", ""),
+            "u": settings.get("navidrome.username", ""),
             "p": settings.get("navidrome.password", ""),
             "v": "1.16.1",
             "c": "ada",
@@ -62,18 +62,6 @@ class MusicManager:
         auth = self._auth()
         qs = urlencode({**auth, "id": song_id, "format": "mp3"})
         return f"{base}/rest/stream?{qs}"
-
-    def build_m3u(self, songs: list[dict]) -> str:
-        """Return an M3U playlist string for the given songs list."""
-        lines = ["#EXTM3U"]
-        for s in songs:
-            song_id = s.get("id", "")
-            if song_id:
-                title = s.get("title", "Unknown")
-                artist = s.get("artist", "")
-                lines.append(f"#EXTINF:-1,{artist} - {title}")
-                lines.append(self.build_stream_url(song_id))
-        return "\n".join(lines)
 
 
 music_manager = MusicManager()

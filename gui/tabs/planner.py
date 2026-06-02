@@ -41,20 +41,7 @@ class PlannerTab(QFrame):
         # --- Column 1: Focus Tasks (HeaderCardWidget) ---
         tasks_col = HeaderCardWidget("Focus Tasks")
         tasks_col.setBorderRadius(12)
-        
-        # Add Input to header area or top of content? 
-        # HeaderCardWidget usually has title. Let's put input inside content.
-        
-        tasks_layout = QVBoxLayout(tasks_col.viewLayout.parentWidget()) 
-        # Note: HeaderCardWidget has .viewLayout which is the content layout
-        # But to access it we usually just add widgets to the Card/view.
-        # Actually HeaderCardWidget inherits from CardWidget but adds a header.
-        # The content area is populated via styling or adding to layout.
-        # Let's check docs or usage. Commonly: widget.viewLayout.addWidget(...)
-        
-        # Wait, HeaderCardWidget in qfluentwidgets might treat children differently.
-        # It's safer to use the layout directly if accessible, or add to self.
-        
+
         t_layout = QVBoxLayout()
         t_layout.setContentsMargins(20, 20, 20, 20)
         t_layout.setSpacing(15)

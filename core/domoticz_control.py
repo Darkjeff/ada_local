@@ -110,7 +110,7 @@ class DomoticzManager:
             return []
 
     def switch_device(self, idx: str, on: bool) -> bool:
-        """Allume ou éteint un périphérique par son IDX."""
+        """Allume ou éteint un périphérique (switch/light) par son IDX via switchlight."""
         cmd = "On" if on else "Off"
         try:
             data = self._get({
@@ -119,19 +119,39 @@ class DomoticzManager:
                 "idx": str(idx),
                 "switchcmd": cmd,
             })
-            if data.get("status") == "OK":
-                return True
+            return data.get("status") == "OK"
+        except Exception as e:
+            print(f"[DomoticzManager] switch_device({idx}, {on}) failed: {e}")
+            return False
 
-            # Certains Group/Scene n'acceptent pas switchlight et exigent switchscene.
-            data_scene = self._get({
+    def switch_toggle(self, idx: str) -> bool:
+        """Envoie Toggle pour les relais impulsionnels (Impuls/ARC) — seule
+        commande qui transmet un signal RF physique pour basculer l'état."""
+        try:
+            data = self._get({
+                "type": "command",
+                "param": "switchlight",
+                "idx": str(idx),
+                "switchcmd": "Toggle",
+            })
+            return data.get("status") == "OK"
+        except Exception as e:
+            print(f"[DomoticzManager] switch_toggle({idx}) failed: {e}")
+            return False
+
+    def switch_scene_or_group(self, idx: str, on: bool) -> bool:
+        """Active/désactive une Scène ou un Groupe Domoticz via switchscene."""
+        cmd = "On" if on else "Off"
+        try:
+            data = self._get({
                 "type": "command",
                 "param": "switchscene",
                 "idx": str(idx),
                 "switchcmd": cmd,
             })
-            return data_scene.get("status") == "OK"
+            return data.get("status") == "OK"
         except Exception as e:
-            print(f"[DomoticzManager] switch_device({idx}, {on}) failed: {e}")
+            print(f"[DomoticzManager] switch_scene_or_group({idx}, {on}) failed: {e}")
             return False
 
     def set_level(self, idx: str, level: int) -> bool:

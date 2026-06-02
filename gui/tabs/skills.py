@@ -90,21 +90,28 @@ class SkillsTab(QWidget):
         right_layout.setContentsMargins(16, 12, 16, 12)
         right_layout.setSpacing(8)
 
-        self.detail_name = QLabel("Sélectionne un skill")
-        self.detail_name.setStyleSheet("font-size: 15px; font-weight: bold; color: #e0e0e0;")
+        def _field_label(text):
+            lbl = QLabel(text)
+            lbl.setStyleSheet("color: #8a8a8a; font-size: 11px; margin-top: 4px;")
+            return lbl
+
+        right_layout.addWidget(_field_label("Nom du skill :"))
+        self.detail_name = LineEdit()
+        self.detail_name.setPlaceholderText("nom_du_skill")
+        self.detail_name.setReadOnly(True)   # le nom = nom du dossier, lecture seule
+        self.detail_name.setStyleSheet("background: rgba(0,0,0,.15); color: #c0c0c0; font-weight: bold;")
         right_layout.addWidget(self.detail_name)
 
-        self.detail_desc = QLabel("")
-        self.detail_desc.setStyleSheet("color: #8a8a8a; font-size: 12px;")
-        self.detail_desc.setWordWrap(True)
+        right_layout.addWidget(_field_label("Description :"))
+        self.detail_desc = LineEdit()
+        self.detail_desc.setPlaceholderText("Description courte du skill")
+        self.detail_desc.setEnabled(False)
         right_layout.addWidget(self.detail_desc)
 
-        self.detail_triggers = QLabel("")
-        self.detail_triggers.setStyleSheet(
-            "color: #5294e2; font-size: 11px; background: rgba(82,148,226,0.08); "
-            "padding: 6px 8px; border-radius: 6px;"
-        )
-        self.detail_triggers.setWordWrap(True)
+        right_layout.addWidget(_field_label("Triggers (séparés par des virgules) :"))
+        self.detail_triggers = LineEdit()
+        self.detail_triggers.setPlaceholderText("mot-clé 1, mot-clé 2")
+        self.detail_triggers.setEnabled(False)
         right_layout.addWidget(self.detail_triggers)
 
         self.always_badge = QLabel("⚡ Toujours actif — injecté dans chaque message")
@@ -115,8 +122,8 @@ class SkillsTab(QWidget):
         self.always_badge.setVisible(False)
         right_layout.addWidget(self.always_badge)
 
-        body_label = QLabel("Contenu du skill :")
-        body_label.setStyleSheet("color: #8a8a8a; font-size: 11px; margin-top: 6px;")
+        body_label = _field_label("Contenu du skill :")
+        body_label.setStyleSheet("color: #8a8a8a; font-size: 11px; margin-top: 8px;")
         right_layout.addWidget(body_label)
 
         self.detail_body = QTextEdit()
@@ -179,32 +186,37 @@ class SkillsTab(QWidget):
         if not skill:
             return
         self._selected_skill = skill
-        self.detail_name.setText(("⚡ " if skill.always else "") + skill.name)
-        self.detail_desc.setText(skill.description or "Pas de description.")
+        self.detail_name.setText(skill.name)
+        self.detail_desc.setText(skill.description or "")
+        self.detail_desc.setEnabled(True)
 
         self.always_badge.setVisible(skill.always)
-        if skill.always:
-            self.detail_triggers.setVisible(False)
-        else:
-            self.detail_triggers.setVisible(True)
-            triggers_text = "  ·  ".join(skill.triggers) if skill.triggers else "—"
-            self.detail_triggers.setText(f"Triggers : {triggers_text}")
+        triggers_text = ", ".join(skill.triggers) if skill.triggers else ""
+        self.detail_triggers.setText(triggers_text)
+        self.detail_triggers.setEnabled(True)
 
         self.detail_body.setPlainText(skill.body)
         self.open_btn.setEnabled(True)
         self.save_btn.setEnabled(True)
 
     def _on_save(self):
-        """Save the edited body back to the SKILL.md, preserving frontmatter."""
+        """Save description, triggers and body back to the SKILL.md."""
         if not self._selected_skill:
             return
         try:
             path = self._selected_skill.path
-            original = path.read_text(encoding="utf-8")
-            # Extract existing frontmatter block
-            import re
-            m = re.match(r"^(---[ \t]*\r?\n.*?\r?\n---[ \t]*\r?\n)", original, re.DOTALL)
-            frontmatter = m.group(1) if m else "---\n---\n"
+            desc = self.detail_desc.text().strip() or self._selected_skill.description or ""
+            raw_triggers = [t.strip() for t in self.detail_triggers.text().split(",") if t.strip()]
+            triggers_yaml = "\n".join(f"  - {t}" for t in raw_triggers) if raw_triggers else "  []"
+            always_line = "\nalways: true" if self._selected_skill.always else ""
+            frontmatter = (
+                f"---\n"
+                f"name: {self._selected_skill.name}\n"
+                f"description: {desc}\n"
+                f"triggers:\n{triggers_yaml}"
+                f"{always_line}\n"
+                f"---\n"
+            )
             new_content = frontmatter + self.detail_body.toPlainText().strip() + "\n"
             path.write_text(new_content, encoding="utf-8")
             skill_manager.reload()

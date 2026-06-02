@@ -1,0 +1,21 @@
+[
+  {
+    "id": "ns3078623.ip-217-182-139.eu",
+    "label": "pbx-one",
+    "host": "217.182.139.61",
+    "port": 8007,
+    "user": "root@pam",
+    "token_name": "ada",
+    "token_value": "",
+    "verify_ssl": false,
+    "enabled": true,
+    "universe": "opent",
+    "company_id": "opentechno",
+    "tags": [
+      "ot",
+      "pbs",
+      "backup"
+    ],
+    "datastores": []
+  }
+]

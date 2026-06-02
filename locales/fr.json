@@ -3,15 +3,6 @@
     "personalization": "Personnalisation",
     "user_name": "Votre prénom",
     "user_name_desc": "Utilisé dans les briefings, la mémoire et Telegram",
-    "domoticz": "Domoticz",
-    "domoticz_enabled": "Activer Domoticz",
-    "domoticz_enabled_desc": "Contrôler les périphériques Domoticz via ADA",
-    "domoticz_url": "URL Domoticz",
-    "domoticz_url_desc": "ex. http://192.168.1.10:8080",
-    "domoticz_user": "Nom d'utilisateur",
-    "domoticz_user_desc": "Compte Domoticz (laisser vide si pas d'auth)",
-    "domoticz_password": "Mot de passe",
-    "domoticz_password_desc": "Mot de passe du compte Domoticz",
     "theme": "Thème de l'application",
     "theme_desc": "Modifier l'apparence de l'application",
     "language": "Langue",
@@ -58,6 +49,15 @@
     "kasa_scanning": "Scan en cours…",
     "kasa_found": "{count} appareil(s) Kasa trouvé(s)",
     "kasa_none": "Aucun appareil Kasa trouvé sur le réseau",
+    "domoticz": "Domoticz",
+    "domoticz_enabled": "Activer Domoticz",
+    "domoticz_enabled_desc": "Contrôler les périphériques Domoticz via ADA",
+    "domoticz_url": "URL Domoticz",
+    "domoticz_url_desc": "ex. http://192.168.1.10:8080",
+    "domoticz_user": "Nom d'utilisateur",
+    "domoticz_user_desc": "Compte Domoticz (laisser vide si pas d'auth)",
+    "domoticz_password": "Mot de passe",
+    "domoticz_password_desc": "Mot de passe du compte Domoticz",
     "voice": "Voix & Audio",
     "tts_voice": "Voix TTS",
     "tts_voice_desc": "Modèle vocal pour la synthèse vocale ({count} installés)",
@@ -130,7 +130,8 @@
     "library": "Bibliothèque",
     "infrastructure": "Infrastructure",
     "marketing": "Marketing",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "societes": "Sociétés"
   },
   "music": {
     "default_player": "Lecteur par défaut",
@@ -144,9 +145,7 @@
     "username": "Nom d'utilisateur",
     "username_desc": "Identifiant Calibre-Web",
     "password": "Mot de passe",
-    "password_desc": "Mot de passe Calibre-Web",
-    "db_path": "Chemin metadata.db",
-    "db_path_desc": "Chemin local vers la base Calibre (ex : /mnt/nas/Calibre\\ Library/metadata.db). Plus fiable que le scraping web."
+    "password_desc": "Mot de passe Calibre-Web"
   },
   "senses": {
     "vision": "Vision",

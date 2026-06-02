@@ -43,6 +43,12 @@ def _get_conn() -> sqlite3.Connection:
         conn.commit()
     except Exception:
         pass
+    # Migration : ajoute tags
+    try:
+        conn.execute("ALTER TABLE marketing_history ADD COLUMN tags TEXT")
+        conn.commit()
+    except Exception:
+        pass
     return conn
 
 
@@ -285,7 +291,7 @@ def get_history(limit: int = 50) -> list[dict]:
     try:
         conn = _get_conn()
         rows = conn.execute(
-            "SELECT id, created_at, skill_name, content_type, reseau, secteur, ton, brief, result "
+            "SELECT id, created_at, skill_name, content_type, reseau, secteur, ton, brief, result, tags "
             "FROM marketing_history ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -301,11 +307,25 @@ def get_history(limit: int = 50) -> list[dict]:
                 "ton": r[6],
                 "brief": r[7],
                 "result": r[8],
+                "tags": json.loads(r[9]) if len(r) > 9 and r[9] else ["local"],
             }
             for r in rows
         ]
     except Exception:
         return []
+
+
+def update_history_tags(entry_id: int, tags: list[str]) -> bool:
+    """Met à jour les tags d'une entrée d'historique marketing."""
+    import json as _json
+    try:
+        conn = _get_conn()
+        cur = conn.execute("UPDATE marketing_history SET tags=? WHERE id=?",
+                           (_json.dumps(tags, ensure_ascii=False), entry_id))
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception:
+        return False
 
 
 def delete_history_entry(entry_id: int) -> None:

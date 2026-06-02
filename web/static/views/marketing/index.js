@@ -247,20 +247,28 @@ async function _loadHistory(root) {
       div.dataset.id = item.id;
       const ts = item.created_at.replace('T', ' ').slice(0, 16);
       const snippet = (item.result || '').replace(/\n/g, ' ').slice(0, 80);
+      const itemTags = Array.isArray(item.tags) ? item.tags : ['local'];
+      const tagsChips = itemTags.filter(t => t !== 'local').map(t =>
+        `<span class="mkt-hist-tag mkt-tag-company">${_escHtml(t)}</span>`
+      ).join('');
       div.innerHTML = `
         <div class="mkt-hist-item-header">
           <div class="mkt-hist-item-tags">
             <span class="mkt-hist-tag">${_escHtml(item.skill_name)}</span>
             <span class="mkt-hist-tag">${_escHtml(item.content_type)}</span>
             <span class="mkt-hist-tag">${_escHtml(item.reseau)}</span>
+            ${tagsChips}
+            <button class="mkt-tag-edit" data-id="${item.id}" title="Gérer les tags société">🏷</button>
           </div>
           <span class="mkt-hist-item-ts">${_escHtml(ts)}</span>
           <button class="mkt-hist-del" data-id="${item.id}" title="Supprimer">✕</button>
         </div>
-        <div class="mkt-hist-snippet">${_escHtml(snippet)}…</div>`;
+        <div class="mkt-hist-snippet">${_escHtml(snippet)}…</div>
+        <div class="mkt-tag-panel" id="mkt-tag-panel-${item.id}" style="display:none;padding:6px 0"></div>`;
       // Clic sur item = restaurer dans la zone résultat
       div.addEventListener('click', (e) => {
         if (e.target.classList.contains('mkt-hist-del')) return;
+        if (e.target.classList.contains('mkt-tag-edit')) return;
         _restoreItem(root, item);
       });
       // Suppression
@@ -268,6 +276,31 @@ async function _loadHistory(root) {
         e.stopPropagation();
         await fetch(`/api/marketing/history/${item.id}`, { method: 'DELETE' });
         _loadHistory(root);
+      });
+      // Tag edit
+      div.querySelector('.mkt-tag-edit').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const panel = div.querySelector(`#mkt-tag-panel-${item.id}`);
+        if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+        let avail = ['local'];
+        try { avail = await (await fetch('/api/tags/available')).json(); } catch {}
+        const current = Array.isArray(item.tags) ? item.tags : ['local'];
+        panel.innerHTML = `<select id="mkt-tsel-${item.id}" multiple style="background:#111820;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#e8edf2;font-size:11px;padding:3px;height:56px">
+          ${avail.map(t => `<option value="${_escHtml(t)}" ${current.includes(t)?'selected':''}>${_escHtml(t)}</option>`).join('')}
+        </select>
+        <button id="mkt-tsave-${item.id}" style="margin-left:6px;padding:3px 10px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.4);border-radius:4px;color:#00d4ff;font-size:11px;cursor:pointer">Sauvegarder</button>`;
+        panel.style.display = 'flex';
+        panel.querySelector(`#mkt-tsave-${item.id}`).addEventListener('click', async () => {
+          const sel = panel.querySelector(`#mkt-tsel-${item.id}`);
+          const tags = Array.from(sel.selectedOptions).map(o => o.value);
+          await fetch(`/api/marketing/history/${item.id}/tags`, {
+            method:'PATCH', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({tags})
+          });
+          item.tags = tags;
+          panel.style.display = 'none';
+          _loadHistory(root);
+        });
       });
       list.appendChild(div);
     }

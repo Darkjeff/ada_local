@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADA — Dashboard + Module Société</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080c10;
+  --surface: #0d1219;
+  --surface2: #111820;
+  --surface3: #161e28;
+  --border: rgba(255,255,255,0.06);
+  --border-bright: rgba(255,255,255,0.12);
+  --text: #e8edf2;
+  --muted: #5a6a7a;
+  --accent: #00d4ff;
+  --accent2: #00ff9d;
+  --warn: #ff9500;
+  --danger: #ff3b5c;
+  --glow: 0 0 20px rgba(0,212,255,0.15);
+  /* Couleurs sociétés */
+  --c-home:   #7c5cfc;
+  --c-opent:  #00d4ff;
+  --c-uscss:  #00ff9d;
+  --c-margep: #ff9500;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Syne', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  grid-template-columns: 220px 1fr 340px;
+}
+
+/* ── TOPBAR ── */
+#topbar {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 14px;
+}
+.logo {
+  font-size: 18px; font-weight: 800;
+  letter-spacing: 0.15em; color: var(--accent);
+  text-shadow: 0 0 12px rgba(0,212,255,0.5);
+  margin-right: 4px;
+}
+.pulse-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent2); box-shadow: 0 0 8px var(--accent2);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(0.7)} }
+
+.stat-pill {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--border-bright); color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.stat-pill span { color: var(--text); font-weight: 500; }
+.stat-pill .dot { width: 5px; height: 5px; border-radius: 50%; }
+.dot-green { background: var(--accent2); box-shadow: 0 0 5px var(--accent2); }
+.dot-orange { background: var(--warn); }
+.dot-red { background: var(--danger); }
+.dot-blue { background: var(--accent); }
+
+.topbar-sep { flex: 1; }
+
+#time-block {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  color: var(--muted); border-left: 1px solid var(--border);
+  padding-left: 16px; margin-left: 4px;
+}
+#time-block strong { color: var(--text); font-size: 15px; }
+
+/* ── SIDEBAR ── */
+#sidebar {
+  background: var(--surface); border-right: 1px solid var(--border);
+  padding: 16px 0; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.nav-group { margin-bottom: 6px; }
+.nav-group-label {
+  font-size: 9px; letter-spacing: 0.18em; color: var(--muted);
+  padding: 6px 18px 4px; text-transform: uppercase; font-weight: 600;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 18px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border-left: 2px solid transparent;
+  transition: all .15s; color: var(--muted);
+}
+.nav-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.nav-item.active { color: var(--text); border-left-color: var(--accent); background: rgba(0,212,255,0.05); }
+.nav-icon { font-size: 14px; width: 16px; text-align: center; }
+.nav-badge {
+  margin-left: auto; font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(255,60,92,0.2); color: var(--danger);
+  border: 1px solid rgba(255,60,92,0.3); border-radius: 10px; padding: 1px 6px;
+}
+.nav-badge.ok { background: rgba(0,255,157,0.1); color: var(--accent2); border-color: rgba(0,255,157,0.2); }
+.nav-badge.warn { background: rgba(255,149,0,0.15); color: var(--warn); border-color: rgba(255,149,0,0.25); }
+.company-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-left: auto; }
+
+/* Sociétés dans la nav */
+.nav-company-group {
+  margin: 4px 10px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.nav-company-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; cursor: pointer;
+  font-size: 12px; font-weight: 700;
+  transition: background .12s;
+}
+.nav-company-header:hover { background: rgba(255,255,255,0.03); }
+.nav-company-header .co-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.nav-company-header .co-name { flex: 1; }
+.nav-company-header .co-badge {
+  font-size: 9px; font-family: 'JetBrains Mono', monospace;
+  padding: 1px 5px; border-radius: 3px; font-weight: 700;
+}
+.nav-company-items { display: none; background: rgba(0,0,0,0.2); }
+.nav-company-items.open { display: block; }
+.nav-company-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 28px;
+  font-size: 11px; color: var(--muted); cursor: pointer;
+  transition: color .12s;
+}
+.nav-company-item:hover { color: var(--text); }
+
+.sidebar-bottom {
+  margin-top: auto; border-top: 1px solid var(--border); padding-top: 12px;
+}
+
+/* ── MAIN ── */
+#main { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+.section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.section-title {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.15em; color: var(--muted); font-weight: 700;
+}
+.section-line { flex: 1; height: 1px; background: var(--border); }
+.section-action {
+  font-size: 10px; color: var(--muted); cursor: pointer;
+  padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace; transition: all .12s;
+}
+.section-action:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── COMPANIES OVERVIEW GRID ── */
+.companies-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.company-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+  position: relative; overflow: hidden;
+}
+.company-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; bottom: 0;
+  width: 3px; border-radius: 12px 0 0 12px;
+  background: var(--co-color, var(--accent));
+}
+.company-card:hover {
+  border-color: var(--co-color, var(--accent));
+  box-shadow: 0 0 20px rgba(0,0,0,0.3);
+  transform: translateY(-1px);
+}
+.company-card.active-company {
+  border-color: var(--co-color, var(--accent));
+  background: var(--surface2);
+}
+
+.co-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.co-logo {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 800; flex-shrink: 0;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border-bright);
+  color: var(--co-color, var(--accent));
+  letter-spacing: 0.05em;
+}
+.co-info { flex: 1; min-width: 0; }
+.co-name { font-size: 13px; font-weight: 800; margin-bottom: 1px; }
+.co-type { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.co-status {
+  font-size: 9px; padding: 2px 7px; border-radius: 10px;
+  font-weight: 700; letter-spacing: 0.08em;
+  border: 1px solid; flex-shrink: 0;
+}
+.co-status.online { color: var(--accent2); border-color: rgba(0,255,157,0.3); background: rgba(0,255,157,0.08); }
+.co-status.warn { color: var(--warn); border-color: rgba(255,149,0,0.3); background: rgba(255,149,0,0.08); }
+
+.co-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+.co-metric {
+  background: var(--surface2);
+  border-radius: 6px; padding: 6px 8px;
+}
+.co-metric-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 2px; }
+.co-metric-value { font-size: 14px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+.co-metric-sub { font-size: 9px; color: var(--muted); margin-top: 1px; }
+
+.co-connectors { display: flex; gap: 5px; flex-wrap: wrap; }
+.co-connector {
+  font-size: 9px; padding: 2px 7px; border-radius: 4px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border-bright);
+  color: var(--muted); font-family: 'JetBrains Mono', monospace;
+  display: flex; align-items: center; gap: 4px;
+}
+.co-connector .conn-dot { width: 4px; height: 4px; border-radius: 50%; }
+.co-connector.connected .conn-dot { background: var(--accent2); }
+.co-connector.pending .conn-dot { background: var(--warn); }
+.co-connector.offline .conn-dot { background: var(--muted); }
+.co-connector.connected { color: var(--text); }
+
+/* ── COMPANY DETAIL VIEW (slide in) ── */
+#company-detail {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+  animation: slideIn .2s ease;
+}
+@keyframes slideIn { from { opacity:0; transform: translateX(8px); } to { opacity:1; transform: none; } }
+#company-detail.visible { display: flex; }
+
+.detail-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.detail-back {
+  font-size: 11px; color: var(--muted); cursor: pointer;
+  padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border-bright);
+  font-family: 'JetBrains Mono', monospace; transition: all .12s;
+}
+.detail-back:hover { color: var(--text); border-color: var(--border-bright); }
+.detail-co-logo {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 800;
+  border: 1px solid var(--border-bright);
+  background: rgba(255,255,255,0.05);
+}
+.detail-co-name { font-size: 18px; font-weight: 800; }
+.detail-co-sub { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+.detail-connector-bar {
+  display: flex; gap: 6px; margin-left: auto; align-items: center;
+}
+.connector-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 20px;
+  border: 1px solid var(--border-bright);
+  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  cursor: pointer; transition: all .12s; color: var(--muted);
+}
+.connector-pill:hover { border-color: var(--accent); color: var(--text); }
+.connector-pill.connected { color: var(--accent2); border-color: rgba(0,255,157,0.3); background: rgba(0,255,157,0.05); }
+.connector-pill .cp-dot { width: 5px; height: 5px; border-radius: 50%; }
+.connector-pill.connected .cp-dot { background: var(--accent2); box-shadow: 0 0 5px var(--accent2); }
+.connector-pill .cp-dot-off { background: var(--muted); }
+
+/* Detail KPIs */
+.detail-kpi-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.detail-kpi {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+  position: relative; overflow: hidden;
+}
+.detail-kpi::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--co-color, var(--accent)); opacity: 0.7;
+}
+.dk-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
+.dk-value { font-size: 22px; font-weight: 800; line-height: 1; margin-bottom: 3px; }
+.dk-sub { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.v-green { color: var(--accent2); }
+.v-blue { color: var(--accent); }
+.v-warn { color: var(--warn); }
+.v-red { color: var(--danger); }
+
+/* Timeline events */
+.timeline { display: flex; flex-direction: column; gap: 0; }
+.tl-item {
+  display: flex; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tl-item:last-child { border-bottom: none; }
+.tl-left { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; width: 32px; }
+.tl-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 3px; flex-shrink: 0; }
+.tl-line { width: 1px; flex: 1; background: var(--border); }
+.tl-body { flex: 1; min-width: 0; }
+.tl-title { font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+.tl-desc { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 4px; }
+.tl-meta { display: flex; align-items: center; gap: 8px; }
+.tl-tag {
+  font-size: 9px; padding: 1px 6px; border-radius: 3px;
+  font-weight: 700; letter-spacing: 0.06em;
+}
+.tl-time { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-left: auto; }
+
+/* Devis/docs list */
+.docs-list { display: flex; flex-direction: column; gap: 6px; }
+.doc-item {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px;
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer; transition: border-color .12s;
+}
+.doc-item:hover { border-color: var(--border-bright); }
+.doc-icon { font-size: 16px; flex-shrink: 0; }
+.doc-info { flex: 1; min-width: 0; }
+.doc-name { font-size: 12px; font-weight: 700; margin-bottom: 2px; }
+.doc-meta { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.doc-status {
+  font-size: 10px; padding: 2px 8px; border-radius: 4px;
+  font-weight: 700; flex-shrink: 0;
+}
+.doc-status.sent { color: var(--accent); background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2); }
+.doc-status.accepted { color: var(--accent2); background: rgba(0,255,157,0.08); border: 1px solid rgba(0,255,157,0.2); }
+.doc-status.pending { color: var(--warn); background: rgba(255,149,0,0.08); border: 1px solid rgba(255,149,0,0.2); }
+.doc-source {
+  font-size: 9px; color: var(--muted); font-family: 'JetBrains Mono', monospace;
+  padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border);
+}
+
+/* ── CHAT PANEL ── */
+#chat-panel {
+  background: var(--surface); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.chat-header {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.chat-header-title { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; }
+.chat-model {
+  margin-left: auto; font-size: 10px;
+  font-family: 'JetBrains Mono', monospace; color: var(--muted);
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  padding: 2px 8px; border-radius: 4px;
+}
+
+/* Sélecteur de société dans le chat */
+.chat-ctx-bar {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ctx-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--muted); font-weight: 700; }
+.ctx-companies { display: flex; gap: 5px; flex-wrap: wrap; }
+.ctx-co-btn {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px;
+  border: 1px solid var(--border-bright);
+  background: transparent; color: var(--muted);
+  font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700;
+  cursor: pointer; transition: all .12s;
+}
+.ctx-co-btn .cb-dot { width: 6px; height: 6px; border-radius: 50%; }
+.ctx-co-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.ctx-co-btn.active {
+  border-color: var(--co-color);
+  color: var(--co-color);
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 0 10px rgba(0,0,0,0.3);
+}
+.ctx-co-btn.all-ctx { background: rgba(255,255,255,0.05); }
+.ctx-co-btn.all-ctx.active { border-color: var(--border-bright); color: var(--text); }
+
+/* Indicateur de contexte actif dans le chat */
+.active-ctx-indicator {
+  display: none; align-items: center; gap: 6px;
+  padding: 5px 10px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 6px;
+  font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--muted);
+}
+.active-ctx-indicator.visible { display: flex; }
+.ctx-ind-dot { width: 5px; height: 5px; border-radius: 50%; }
+.ctx-ind-connector {
+  margin-left: auto; font-size: 9px; padding: 1px 6px;
+  border-radius: 3px; border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; transition: all .12s;
+}
+.ctx-ind-connector:hover { color: var(--accent); border-color: var(--accent); }
+.ctx-ind-connector.live { color: var(--accent2); border-color: rgba(0,255,157,0.3); }
+
+#chat-messages {
+  flex: 1; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.msg { max-width: 90%; font-size: 12px; line-height: 1.6; padding: 10px 13px; border-radius: 10px; animation: fadein .2s ease; }
+@keyframes fadein { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform:none; } }
+.msg-ada {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px 10px 10px 2px; align-self: flex-start;
+}
+.msg-ada .msg-name {
+  font-size: 10px; color: var(--accent); font-weight: 700;
+  letter-spacing: 0.1em; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.msg-ada .msg-name::after {
+  content: 'ADA'; font-size: 9px;
+  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2);
+  padding: 1px 5px; border-radius: 3px; letter-spacing: 0.15em;
+}
+.msg-ctx-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 9px; padding: 1px 6px; border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace; font-weight: 700;
+  margin-bottom: 4px;
+}
+.msg-user {
+  background: rgba(0,212,255,0.07); border: 1px solid rgba(0,212,255,0.15);
+  border-radius: 10px 10px 2px 10px; align-self: flex-end;
+}
+.msg-data-card {
+  background: var(--surface); border: 1px solid var(--border-bright);
+  border-radius: 8px; padding: 10px 12px; margin-top: 8px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+}
+.mdc-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.mdc-source { font-size: 9px; padding: 1px 6px; border-radius: 3px; border: 1px solid; }
+.mdc-title { font-size: 11px; font-weight: 700; }
+.mdc-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+.mdc-row:last-child { border-bottom: none; }
+.mdc-row span { color: var(--text); font-weight: 700; }
+.msg-action-card {
+  background: var(--surface2); border: 1px solid var(--border-bright);
+  border-radius: 8px; padding: 8px 10px; margin-top: 6px;
+  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+}
+.msg-action-card .action-label { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
+.action-btns { display: flex; gap: 6px; margin-top: 8px; }
+.action-btn {
+  padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border-bright);
+  background: transparent; color: var(--text);
+  font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s;
+}
+.action-btn.confirm { border-color: var(--accent2); color: var(--accent2); }
+.action-btn.confirm:hover { background: rgba(0,255,157,0.1); }
+.action-btn.cancel { border-color: var(--danger); color: var(--danger); }
+
+.typing-indicator { display: none; align-self: flex-start; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+.typing-indicator.visible { display: flex; gap: 4px; align-items: center; }
+.typing-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: typing 1.2s infinite; }
+.typing-dot:nth-child(2) { animation-delay: .2s; }
+.typing-dot:nth-child(3) { animation-delay: .4s; }
+@keyframes typing { 0%,60%,100%{transform:none;opacity:.4} 30%{transform:translateY(-3px);opacity:1} }
+
+.chat-input-area { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.quick-prompts { display: flex; gap: 5px; flex-wrap: wrap; }
+.qp {
+  font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
+  border: 1px solid var(--border-bright); background: transparent; color: var(--muted);
+  cursor: pointer; transition: all .12s; font-family: 'Syne', sans-serif;
+}
+.qp:hover { color: var(--text); border-color: var(--accent); }
+.input-row { display: flex; gap: 8px; align-items: flex-end; }
+#chat-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border-bright);
+  border-radius: 8px; color: var(--text); font-family: 'Syne', sans-serif;
+  font-size: 12px; padding: 9px 12px; resize: none; outline: none;
+  min-height: 38px; max-height: 100px; transition: border-color .15s;
+}
+#chat-input:focus { border-color: var(--accent); }
+#chat-input::placeholder { color: var(--muted); }
+.input-btns { display: flex; gap: 6px; }
+.mic-btn, .send-btn {
+  width: 36px; height: 36px; border-radius: 8px;
+  border: 1px solid var(--border-bright); background: transparent;
+  color: var(--muted); cursor: pointer; font-size: 14px; transition: all .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.mic-btn:hover { color: var(--warn); border-color: var(--warn); }
+.send-btn:hover { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
+/* ── TABS ── */
+#main > div[id^="tab-"] { display: none; flex-direction: column; gap: 16px; }
+#main > div[id^="tab-"].active { display: flex; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header id="topbar">
+  <div class="logo">ADA</div>
+  <div class="pulse-dot"></div>
+  <div class="stat-pill"><div class="dot dot-green"></div>LLM <span>Mistral · Online</span></div>
+  <div class="stat-pill"><div class="dot dot-green"></div>Domo <span>144 actifs</span></div>
+  <div class="stat-pill"><div class="dot dot-green"></div>Proxmox <span>12/12</span></div>
+  <div class="stat-pill"><div class="dot dot-orange"></div>RMM <span>2 alertes</span></div>
+  <div class="stat-pill"><div class="dot dot-blue"></div>4 sociétés <span>actives</span></div>
+  <div class="topbar-sep"></div>
+  <div id="time-block"><strong id="clock">--:--</strong> &nbsp;·&nbsp; <span id="datestr">Vendredi 29 Mai</span></div>
+</header>
+
+<!-- SIDEBAR -->
+<nav id="sidebar">
+  <div class="nav-group">
+    <div class="nav-group-label">Global</div>
+    <div class="nav-item active" onclick="showTab('dashboard',this)"><span class="nav-icon">◈</span> Tableau de bord</div>
+    <div class="nav-item" onclick="showTab('alerts',this)"><span class="nav-icon">⚠</span> Alertes <span class="nav-badge">3</span></div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">🏠 Maison</div>
+    <div class="nav-item" onclick="showTab('domotique',this)"><span class="nav-icon">⚡</span> Domotique</div>
+    <div class="nav-item"><span class="nav-icon">📷</span> Caméras</div>
+  </div>
+
+  <!-- MODULE SOCIÉTÉS -->
+  <div class="nav-group">
+    <div class="nav-group-label" style="color:var(--accent)">◈ Sociétés</div>
+
+    <div class="nav-company-group" style="--co-color:var(--c-opent)">
+      <div class="nav-company-header" onclick="toggleCompanyNav(this)">
+        <div class="co-dot" style="background:var(--c-opent)"></div>
+        <span class="co-name" style="color:var(--c-opent)">OpenTechno</span>
+        <span class="co-badge" style="color:var(--warn);background:rgba(255,149,0,0.1);border:1px solid rgba(255,149,0,0.2)">2 ⚠</span>
+      </div>
+      <div class="nav-company-items open">
+        <div class="nav-company-item" onclick="openCompany('opent')">◈ Vue société</div>
+        <div class="nav-company-item">💬 Chat dédié</div>
+        <div class="nav-company-item">📋 Devis / Docs</div>
+        <div class="nav-company-item">🖥 Infrastructure</div>
+        <div class="nav-company-item">📞 Téléphonie</div>
+      </div>
+    </div>
+
+    <div class="nav-company-group" style="margin-top:6px;--co-color:var(--c-uscss)">
+      <div class="nav-company-header" onclick="toggleCompanyNav(this)">
+        <div class="co-dot" style="background:var(--c-uscss)"></div>
+        <span class="co-name" style="color:var(--c-uscss)">USCSS</span>
+        <span class="co-badge" style="color:var(--accent2);background:rgba(0,255,157,0.08);border:1px solid rgba(0,255,157,0.2)">OK</span>
+      </div>
+      <div class="nav-company-items">
+        <div class="nav-company-item" onclick="openCompany('uscss')">◈ Vue société</div>
+        <div class="nav-company-item">💬 Chat dédié</div>
+        <div class="nav-company-item">📊 Supervision</div>
+        <div class="nav-company-item">📋 Projets</div>
+      </div>
+    </div>
+
+    <div class="nav-company-group" style="margin-top:6px;--co-color:var(--c-margep)">
+      <div class="nav-company-header" onclick="toggleCompanyNav(this)">
+        <div class="co-dot" style="background:var(--c-margep)"></div>
+        <span class="co-name" style="color:var(--c-margep)">Marge Pro</span>
+        <span class="co-badge" style="color:var(--accent2);background:rgba(0,255,157,0.08);border:1px solid rgba(0,255,157,0.2)">OK</span>
+      </div>
+      <div class="nav-company-items">
+        <div class="nav-company-item" onclick="openCompany('margep')">◈ Vue société</div>
+        <div class="nav-company-item">💬 Chat dédié</div>
+        <div class="nav-company-item">💼 Suivi</div>
+        <div class="nav-company-item">📈 Reporting</div>
+      </div>
+    </div>
+
+    <div style="margin-top:8px;padding:0 10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;border:1px dashed var(--border-bright);cursor:pointer;color:var(--muted);font-size:11px;font-weight:700;transition:all .12s" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">
+        <span>+ Ajouter une société</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-bottom">
+    <div class="nav-item"><span class="nav-icon">⚙</span> Paramètres</div>
+    <div class="nav-item"><span class="nav-icon">🧠</span> Mémoire ADA</div>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<main id="main">
+
+  <!-- TAB: DASHBOARD GLOBAL -->
+  <div id="tab-dashboard" class="active">
+
+    <div class="section-header">
+      <div class="section-title">Sociétés actives</div>
+      <div class="section-line"></div>
+      <div class="section-action" onclick="openCompany('all')">Vue globale ▸</div>
+    </div>
+
+    <div class="companies-grid">
+
+      <!-- OpenTechno -->
+      <div class="company-card" style="--co-color:var(--c-opent)" onclick="openCompany('opent')">
+        <div class="co-header">
+          <div class="co-logo" style="color:var(--c-opent)">OT</div>
+          <div class="co-info">
+            <div class="co-name">OpenTechno</div>
+            <div class="co-type">MSP · Infra & Téléphonie</div>
+          </div>
+          <div class="co-status warn">2 alertes</div>
+        </div>
+        <div class="co-metrics">
+          <div class="co-metric">
+            <div class="co-metric-label">Serveurs</div>
+            <div class="co-metric-value" style="color:var(--accent2)">12/12</div>
+            <div class="co-metric-sub">Proxmox OK</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">Clients RMM</div>
+            <div class="co-metric-value" style="color:var(--warn)">2 ⚠</div>
+            <div class="co-metric-sub">sur 14 actifs</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">CA / mois</div>
+            <div class="co-metric-value" style="color:var(--accent)">18k€</div>
+            <div class="co-metric-sub">+4% vs N-1</div>
+          </div>
+        </div>
+        <div class="co-connectors">
+          <div class="co-connector connected"><div class="conn-dot"></div>Proxmox</div>
+          <div class="co-connector connected"><div class="conn-dot"></div>3CX</div>
+          <div class="co-connector pending"><div class="conn-dot" style="background:var(--warn)"></div>ERP ↗</div>
+          <div class="co-connector offline"><div class="conn-dot"></div>CRM</div>
+        </div>
+      </div>
+
+      <!-- USCSS -->
+      <div class="company-card" style="--co-color:var(--c-uscss)" onclick="openCompany('uscss')">
+        <div class="co-header">
+          <div class="co-logo" style="color:var(--c-uscss)">US</div>
+          <div class="co-info">
+            <div class="co-name">USCSS</div>
+            <div class="co-type">Client · Supervision & Projets</div>
+          </div>
+          <div class="co-status online">Nominal</div>
+        </div>
+        <div class="co-metrics">
+          <div class="co-metric">
+            <div class="co-metric-label">Tickets</div>
+            <div class="co-metric-value" style="color:var(--accent)">7</div>
+            <div class="co-metric-sub">2 prioritaires</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">Devis ouverts</div>
+            <div class="co-metric-value" style="color:var(--warn)">3</div>
+            <div class="co-metric-sub">42k€ en cours</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">Projets</div>
+            <div class="co-metric-value" style="color:var(--accent2)">2</div>
+            <div class="co-metric-sub">en cours</div>
+          </div>
+        </div>
+        <div class="co-connectors">
+          <div class="co-connector connected"><div class="conn-dot"></div>Dolibarr</div>
+          <div class="co-connector connected"><div class="conn-dot"></div>Ticket</div>
+          <div class="co-connector offline"><div class="conn-dot"></div>ERP</div>
+        </div>
+      </div>
+
+      <!-- Marge Pro -->
+      <div class="company-card" style="--co-color:var(--c-margep)" onclick="openCompany('margep')">
+        <div class="co-header">
+          <div class="co-logo" style="color:var(--c-margep)">MP</div>
+          <div class="co-info">
+            <div class="co-name">Marge Pro</div>
+            <div class="co-type">Client · Commercial & Suivi</div>
+          </div>
+          <div class="co-status online">Nominal</div>
+        </div>
+        <div class="co-metrics">
+          <div class="co-metric">
+            <div class="co-metric-label">Devis</div>
+            <div class="co-metric-value" style="color:var(--accent2)">1</div>
+            <div class="co-metric-sub">accepté</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">Factures</div>
+            <div class="co-metric-value" style="color:var(--accent)">3</div>
+            <div class="co-metric-sub">11.2k€ total</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">Retard</div>
+            <div class="co-metric-value" style="color:var(--accent2)">0</div>
+            <div class="co-metric-sub">À jour</div>
+          </div>
+        </div>
+        <div class="co-connectors">
+          <div class="co-connector pending"><div class="conn-dot" style="background:var(--warn)"></div>Dolibarr ↗</div>
+          <div class="co-connector offline"><div class="conn-dot"></div>CRM</div>
+        </div>
+      </div>
+
+      <!-- Maison -->
+      <div class="company-card" style="--co-color:var(--c-home)" onclick="showTab('domotique', null)">
+        <div class="co-header">
+          <div class="co-logo" style="color:var(--c-home)">🏠</div>
+          <div class="co-info">
+            <div class="co-name">Maison</div>
+            <div class="co-type">Domotique · IoT · Sécurité</div>
+          </div>
+          <div class="co-status online">Nominal</div>
+        </div>
+        <div class="co-metrics">
+          <div class="co-metric">
+            <div class="co-metric-label">Appareils</div>
+            <div class="co-metric-value" style="color:var(--accent)">144</div>
+            <div class="co-metric-sub">actifs</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">Capteurs</div>
+            <div class="co-metric-value" style="color:var(--accent2)">OK</div>
+            <div class="co-metric-sub">Temp 20°C</div>
+          </div>
+          <div class="co-metric">
+            <div class="co-metric-label">Alarme</div>
+            <div class="co-metric-value" style="color:var(--muted)">OFF</div>
+            <div class="co-metric-sub">désactivée</div>
+          </div>
+        </div>
+        <div class="co-connectors">
+          <div class="co-connector connected"><div class="conn-dot"></div>Domo</div>
+          <div class="co-connector connected"><div class="conn-dot"></div>Kasa</div>
+          <div class="co-connector connected"><div class="conn-dot"></div>Caméras</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flux alertes cross-sociétés -->
+    <div class="section-header">
+      <div class="section-title">Alertes croisées</div>
+      <div class="section-line"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="background:var(--surface);border:1px solid var(--border);border-left:2px solid var(--warn);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="focusCompany('opent','Détaille l\'alerte RMM Dupont SA')">
+        <span style="font-size:13px">⚠</span>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:700">Dupont SA — disque C: à 91%</div>
+          <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace">WIN-SRV-001 · seuil 85% · via RMM</div>
+        </div>
+        <span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(0,212,255,0.08);color:var(--c-opent);border:1px solid rgba(0,212,255,0.2);font-weight:700;font-family:'JetBrains Mono',monospace">OpenTechno</span>
+        <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace">8 min</span>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-left:2px solid var(--warn);border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="focusCompany('opent','Que faire pour l\'alerte SVC_BACKUP Martin & Fils ?')">
+        <span style="font-size:13px">⚠</span>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:700">Martin & Fils — SVC_BACKUP arrêté</div>
+          <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace">stopped · depuis 00:23 · via RMM</div>
+        </div>
+        <span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(0,212,255,0.08);color:var(--c-opent);border:1px solid rgba(0,212,255,0.2);font-weight:700;font-family:'JetBrains Mono',monospace">OpenTechno</span>
+        <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace">23 min</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: VUE SOCIÉTÉ DÉTAIL -->
+  <div id="tab-company" style="gap:16px">
+
+    <!-- Header société -->
+    <div class="detail-header" id="detail-header">
+      <div class="detail-back" onclick="showTab('dashboard',null)">← Retour</div>
+      <div class="detail-co-logo" id="detail-logo" style="color:var(--c-opent)">OT</div>
+      <div>
+        <div class="detail-co-name" id="detail-name">OpenTechno</div>
+        <div class="detail-co-sub" id="detail-sub">MSP · Infrastructure & Téléphonie · Proxmox · 3CX</div>
+      </div>
+      <div class="detail-connector-bar">
+        <div class="connector-pill connected" title="Proxmox connecté"><div class="cp-dot"></div>Proxmox</div>
+        <div class="connector-pill connected" title="3CX connecté"><div class="cp-dot"></div>3CX</div>
+        <div class="connector-pill" title="Dolibarr non configuré" onclick="injectPrompt('Connecter Dolibarr pour OpenTechno')"><div class="cp-dot cp-dot-off"></div>+ ERP</div>
+      </div>
+    </div>
+
+    <!-- KPIs société -->
+    <div class="detail-kpi-grid" id="detail-kpis"></div>
+
+    <!-- Timeline + Docs côte à côte -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <div class="section-header" style="margin-bottom:8px">
+          <div class="section-title">Fil des événements</div>
+          <div class="section-line"></div>
+        </div>
+        <div class="timeline" id="detail-timeline"></div>
+      </div>
+      <div>
+        <div class="section-header" style="margin-bottom:8px">
+          <div class="section-title">Devis & Documents</div>
+          <div class="section-line"></div>
+          <div class="section-action" onclick="injectPrompt('Crée un nouveau devis pour ' + currentCompany.name)">+ Nouveau</div>
+        </div>
+        <div class="docs-list" id="detail-docs"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: DOMOTIQUE (light) -->
+  <div id="tab-domotique" style="gap:16px">
+    <div class="section-header"><div class="section-title">Contrôle domotique</div><div class="section-line"></div></div>
+    <p style="color:var(--muted);font-size:12px">Module domotique — contenu complet disponible dans la version PySide6.</p>
+  </div>
+
+  <!-- TAB: ALERTES -->
+  <div id="tab-alerts" style="gap:16px">
+    <div class="section-header"><div class="section-title">Toutes les alertes</div><div class="section-line"></div></div>
+    <p style="color:var(--muted);font-size:12px">Filtrage cross-sociétés à venir.</p>
+  </div>
+
+</main>
+
+<!-- CHAT PANEL -->
+<aside id="chat-panel">
+  <div class="chat-header">
+    <div class="pulse-dot"></div>
+    <div class="chat-header-title">ADA</div>
+    <div class="chat-model">mistral · local</div>
+  </div>
+
+  <!-- Sélecteur de contexte société -->
+  <div class="chat-ctx-bar">
+    <div class="ctx-label">Contexte actif</div>
+    <div class="ctx-companies">
+      <button class="ctx-co-btn all-ctx active" onclick="setCtxCo(this,'all',null)" style="--co-color:rgba(255,255,255,0.4)">
+        <div class="cb-dot" style="background:rgba(255,255,255,0.4)"></div> Tout
+      </button>
+      <button class="ctx-co-btn" onclick="setCtxCo(this,'opent','OpenTechno')" style="--co-color:var(--c-opent)">
+        <div class="cb-dot" style="background:var(--c-opent)"></div> OpenTechno
+      </button>
+      <button class="ctx-co-btn" onclick="setCtxCo(this,'uscss','USCSS')" style="--co-color:var(--c-uscss)">
+        <div class="cb-dot" style="background:var(--c-uscss)"></div> USCSS
+      </button>
+      <button class="ctx-co-btn" onclick="setCtxCo(this,'margep','Marge Pro')" style="--co-color:var(--c-margep)">
+        <div class="cb-dot" style="background:var(--c-margep)"></div> Marge Pro
+      </button>
+      <button class="ctx-co-btn" onclick="setCtxCo(this,'home','Maison')" style="--co-color:var(--c-home)">
+        <div class="cb-dot" style="background:var(--c-home)"></div> Maison
+      </button>
+    </div>
+    <!-- Indicateur connecteurs actifs -->
+    <div class="active-ctx-indicator" id="ctx-indicator">
+      <div class="ctx-ind-dot"></div>
+      <span id="ctx-ind-text">Contexte global</span>
+      <div class="ctx-ind-connector" id="ctx-ind-conn" onclick="injectPrompt('Quels connecteurs sont disponibles pour ce contexte ?')">+ Connecteur</div>
+    </div>
+  </div>
+
+  <div id="chat-messages">
+    <div class="msg msg-ada">
+      <div class="msg-name"></div>
+      Bonjour Aurélien. Tout est opérationnel — 4 sociétés actives, 144 appareils domotique, Proxmox 12/12, backups réussis. J'ai <strong style="color:var(--warn)">2 alertes RMM</strong> chez OpenTechno. Je t'attends.
+    </div>
+    <div class="msg msg-user">Quel est le dernier devis envoyé à USCSS ?</div>
+    <div class="msg msg-ada">
+      <div class="msg-name"></div>
+      <div class="msg-ctx-badge" style="background:rgba(0,255,157,0.08);border:1px solid rgba(0,255,157,0.2);color:var(--c-uscss)">
+        <div style="width:4px;height:4px;border-radius:50%;background:var(--c-uscss)"></div> USCSS · Dolibarr
+      </div>
+      Dernier devis récupéré depuis Dolibarr :
+      <div class="msg-data-card">
+        <div class="mdc-header">
+          <span class="mdc-source" style="color:var(--c-uscss);border-color:rgba(0,255,157,0.3)">Dolibarr</span>
+          <span class="mdc-title">DEV-2025-0142</span>
+        </div>
+        <div class="mdc-row">Objet <span>Migration infrastructure v2</span></div>
+        <div class="mdc-row">Montant HT <span style="color:var(--accent2)">18 400 €</span></div>
+        <div class="mdc-row">Date envoi <span>14 mai 2025</span></div>
+        <div class="mdc-row">Statut <span style="color:var(--warn)">En attente</span></div>
+      </div>
+      Tu veux que je relance le client ou que je génère un récapitulatif ?
+    </div>
+  </div>
+
+  <div class="typing-indicator" id="typing">
+    <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+  </div>
+
+  <div class="chat-input-area">
+    <div class="quick-prompts">
+      <button class="qp" onclick="injectPrompt('Résumé des devis ouverts toutes sociétés')">📋 Devis</button>
+      <button class="qp" onclick="injectPrompt('Alertes actives OpenTechno')">⚠ Alertes</button>
+      <button class="qp" onclick="injectPrompt('Connecter Dolibarr pour Marge Pro')">🔌 Connecter</button>
+      <button class="qp" onclick="injectPrompt('Rapport journalier toutes sociétés')">📊 Rapport</button>
+    </div>
+    <div class="input-row">
+      <textarea id="chat-input" placeholder="Demande à ADA..." rows="1"
+        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <div class="input-btns">
+        <button class="mic-btn">🎤</button>
+        <button class="send-btn" onclick="sendMessage()">▶</button>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<script>
+// ── CLOCK ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+}
+updateClock(); setInterval(updateClock, 10000);
+
+// ── COMPANIES DATA ──
+const COMPANIES = {
+  opent: {
+    id: 'opent', name: 'OpenTechno', logo: 'OT', color: 'var(--c-opent)',
+    sub: 'MSP · Infrastructure & Téléphonie · Proxmox · 3CX',
+    connectors: [{label:'Proxmox',connected:true},{label:'3CX',connected:true},{label:'+ ERP',connected:false}],
+    kpis: [
+      {label:'Serveurs',value:'12/12',cls:'v-green',sub:'Proxmox OK'},
+      {label:'Clients RMM',value:'14',cls:'v-blue',sub:'2 alertes actives'},
+      {label:'CA mensuel',value:'18k€',cls:'v-blue',sub:'+4% vs N-1'},
+      {label:'Alertes',value:'2',cls:'v-warn',sub:'Dupont · Martin'},
+    ],
+    timeline: [
+      {color:'var(--warn)',title:'RMM Dupont SA — disque C: 91%',desc:'WIN-SRV-001 · seuil dépassé',tag:{label:'RMM',color:'var(--c-opent)'},time:'il y a 8 min'},
+      {color:'var(--warn)',title:'RMM Martin & Fils — SVC_BACKUP arrêté',desc:'service stopped · 23 min',tag:{label:'RMM',color:'var(--c-opent)'},time:'il y a 23 min'},
+      {color:'var(--accent2)',title:'Backups nuit — 18/18 réussis',desc:'durée 2h14 · zstd · 0 erreur',tag:{label:'Backup',color:'var(--c-opent)'},time:'05:47'},
+      {color:'var(--accent)',title:'Switch salon redémarré',desc:'uptime 0:04:12 · résolu',tag:{label:'Réseau',color:'var(--c-home)'},time:'il y a 41 min'},
+    ],
+    docs: [
+      {icon:'📄',name:'Contrat MSP 2025',meta:'Renouvelé · janv. 2025 · 24 mois',status:'accepted',source:'Manuel'},
+      {icon:'📋',name:'Audit infra Q1 2025',meta:'Livré · mars 2025',status:'sent',source:'Manuel'},
+    ]
+  },
+  uscss: {
+    id: 'uscss', name: 'USCSS', logo: 'US', color: 'var(--c-uscss)',
+    sub: 'Client · Supervision & Projets · Dolibarr',
+    connectors: [{label:'Dolibarr',connected:true},{label:'Ticket',connected:true},{label:'+ ERP',connected:false}],
+    kpis: [
+      {label:'Tickets',value:'7',cls:'v-blue',sub:'2 prioritaires'},
+      {label:'Devis ouverts',value:'3',cls:'v-warn',sub:'42k€ en cours'},
+      {label:'Projets actifs',value:'2',cls:'v-green',sub:'Migration · Audit'},
+      {label:'Factures',value:'OK',cls:'v-green',sub:'À jour'},
+    ],
+    timeline: [
+      {color:'var(--accent)',title:'DEV-2025-0142 — En attente réponse',desc:'Migration infra v2 · 18 400€',tag:{label:'Devis',color:'var(--c-uscss)'},time:'14 mai'},
+      {color:'var(--accent2)',title:'Ticket #204 résolu',desc:'Problème VPN site B',tag:{label:'Ticket',color:'var(--c-uscss)'},time:'il y a 2j'},
+      {color:'var(--accent)',title:'Réunion point projet',desc:'Revue avancement migration',tag:{label:'Projet',color:'var(--c-uscss)'},time:'il y a 5j'},
+    ],
+    docs: [
+      {icon:'📋',name:'DEV-2025-0142',meta:'Migration infra v2 · 18 400€ HT',status:'pending',source:'Dolibarr'},
+      {icon:'📋',name:'DEV-2025-0138',meta:'Audit sécurité · 6 200€ HT',status:'sent',source:'Dolibarr'},
+      {icon:'📄',name:'FAC-2025-0089',meta:'Maintenance Q1 · 4 800€ HT',status:'accepted',source:'Dolibarr'},
+    ]
+  },
+  margep: {
+    id: 'margep', name: 'Marge Pro', logo: 'MP', color: 'var(--c-margep)',
+    sub: 'Client · Commercial & Suivi',
+    connectors: [{label:'+ Dolibarr',connected:false},{label:'+ CRM',connected:false}],
+    kpis: [
+      {label:'Devis accepté',value:'1',cls:'v-green',sub:'8 900€ HT'},
+      {label:'Factures',value:'3',cls:'v-blue',sub:'11.2k€ total'},
+      {label:'Retards',value:'0',cls:'v-green',sub:'À jour'},
+      {label:'Connecteurs',value:'0',cls:'v-warn',sub:'À configurer'},
+    ],
+    timeline: [
+      {color:'var(--accent2)',title:'DEV-2025-0130 accepté',desc:'Intégration SI · 8 900€',tag:{label:'Devis',color:'var(--c-margep)'},time:'3 mai'},
+      {color:'var(--accent)',title:'Réunion découverte',desc:'Prise de besoin ERP',tag:{label:'Commercial',color:'var(--c-margep)'},time:'25 avr.'},
+    ],
+    docs: [
+      {icon:'📋',name:'DEV-2025-0130',meta:'Intégration SI · 8 900€ HT',status:'accepted',source:'Manuel'},
+      {icon:'📄',name:'FAC-2025-0081',meta:'Prestation Q1 · 3 600€ HT',status:'sent',source:'Manuel'},
+    ]
+  }
+};
+
+let currentCompany = null;
+
+// ── NAVIGATION ──
+function showTab(name, navEl) {
+  document.querySelectorAll('#main > div').forEach(d => {
+    d.classList.remove('active');
+    d.style.display = 'none';
+  });
+  const tab = document.getElementById('tab-' + name);
+  if (tab) { tab.classList.add('active'); tab.style.display = 'flex'; }
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (navEl) navEl.classList.add('active');
+  currentCompany = null;
+}
+
+function openCompany(id) {
+  const co = COMPANIES[id];
+  if (!co) return;
+  currentCompany = co;
+
+  // Activer onglet company
+  document.querySelectorAll('#main > div').forEach(d => { d.classList.remove('active'); d.style.display = 'none'; });
+  const tab = document.getElementById('tab-company');
+  tab.classList.add('active'); tab.style.display = 'flex';
+
+  // Remplir header
+  const logo = document.getElementById('detail-logo');
+  logo.textContent = co.logo; logo.style.color = co.color;
+  document.getElementById('detail-name').textContent = co.name;
+  document.getElementById('detail-sub').textContent = co.sub;
+
+  // Connecteurs dans le header
+  const connBar = document.querySelector('.detail-connector-bar');
+  connBar.innerHTML = co.connectors.map(c =>
+    `<div class="connector-pill ${c.connected?'connected':''}" onclick="injectPrompt('${c.connected?'Statut connecteur '+c.label:'Connecter '+c.label+' pour '+co.name}')">
+      <div class="cp-dot ${c.connected?'':'cp-dot-off'}"></div>${c.label}
+    </div>`
+  ).join('');
+
+  // KPIs
+  const kpiEl = document.getElementById('detail-kpis');
+  kpiEl.innerHTML = co.kpis.map(k =>
+    `<div class="detail-kpi" style="--co-color:${co.color}">
+      <div class="dk-label">${k.label}</div>
+      <div class="dk-value ${k.cls}">${k.value}</div>
+      <div class="dk-sub">${k.sub}</div>
+    </div>`
+  ).join('');
+
+  // Timeline
+  const tlEl = document.getElementById('detail-timeline');
+  tlEl.innerHTML = co.timeline.map((e, i) =>
+    `<div class="tl-item">
+      <div class="tl-left">
+        <div class="tl-dot" style="background:${e.color}"></div>
+        ${i < co.timeline.length - 1 ? '<div class="tl-line"></div>' : ''}
+      </div>
+      <div class="tl-body">
+        <div class="tl-title">${e.title}</div>
+        <div class="tl-desc">${e.desc}</div>
+        <div class="tl-meta">
+          <span class="tl-tag" style="color:${e.tag.color};background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08)">${e.tag.label}</span>
+          <span class="tl-time">${e.time}</span>
+        </div>
+      </div>
+    </div>`
+  ).join('');
+
+  // Docs
+  const docsEl = document.getElementById('detail-docs');
+  docsEl.innerHTML = co.docs.map(d =>
+    `<div class="doc-item" onclick="injectPrompt('Détaille le document ${d.name} de ${co.name}')">
+      <div class="doc-icon">${d.icon}</div>
+      <div class="doc-info">
+        <div class="doc-name">${d.name}</div>
+        <div class="doc-meta">${d.meta}</div>
+      </div>
+      <div class="doc-status ${d.status}">${d.status==='accepted'?'✓ Accepté':d.status==='sent'?'Envoyé':'En attente'}</div>
+      <div class="doc-source">${d.source}</div>
+    </div>`
+  ).join('');
+
+  // Sync contexte chat
+  setCtxCoByName(id, co.name);
+}
+
+function focusCompany(id, prompt) {
+  openCompany(id);
+  injectPrompt(prompt);
+}
+
+function toggleCompanyNav(header) {
+  const items = header.nextElementSibling;
+  items.classList.toggle('open');
+}
+
+// ── CHAT CONTEXT ──
+let activeCtx = 'all';
+function setCtxCo(btn, id, name) {
+  document.querySelectorAll('.ctx-co-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activeCtx = id;
+  const indicator = document.getElementById('ctx-indicator');
+  const indText = document.getElementById('ctx-ind-text');
+  const indConn = document.getElementById('ctx-ind-conn');
+  if (id === 'all') {
+    indicator.classList.remove('visible');
+  } else {
+    indicator.classList.add('visible');
+    const co = COMPANIES[id];
+    const dot = indicator.querySelector('.ctx-ind-dot');
+    dot.style.background = co ? co.color : 'var(--accent)';
+    indText.textContent = name + ' · Skills chargés';
+    const hasConn = co && co.connectors.some(c => c.connected);
+    if (hasConn) {
+      const conn = co.connectors.find(c => c.connected);
+      indConn.textContent = conn.label + ' 🟢';
+      indConn.classList.add('live');
+    } else {
+      indConn.textContent = '+ Connecteur';
+      indConn.classList.remove('live');
+    }
+  }
+}
+
+function setCtxCoByName(id, name) {
+  const btn = document.querySelector(`.ctx-co-btn[onclick*="'${id}'"]`);
+  if (btn) setCtxCo(btn, id, name);
+}
+
+// ── CHAT ──
+const messages = document.getElementById('chat-messages');
+const input = document.getElementById('chat-input');
+
+function injectPrompt(text) { input.value = text; input.focus(); autoResize(input); }
+function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,100)+'px'; }
+function handleKey(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} }
+
+const ctxResponses = {
+  opent: {
+    'devis':    'Aucun devis en cours pour OpenTechno — c\'est une société interne. Voulez-vous voir les contrats clients RMM actifs ?',
+    'alerte':   'Alertes OpenTechno actives :\n1. Dupont SA — C: à 91%\n2. Martin & Fils — SVC_BACKUP arrêté\nVoeux-tu que j\'intervienne ?',
+    'backup':   'Backups OpenTechno : 18/18 VM réussies. Durée 2h14. Prochain cycle : 02:00.',
+    'default':  'Contexte OpenTechno chargé. Skills : Proxmox, 3CX, RMM. Quel est ton besoin ?'
+  },
+  uscss: {
+    'devis':    'Dolibarr USCSS — 3 devis ouverts :\n• DEV-2025-0142 : Migration infra — 18 400€ (en attente)\n• DEV-2025-0138 : Audit sécurité — 6 200€ (envoyé)\n• DEV-2025-0135 : Support Q2 — 3 600€ (en attente)',
+    'facture':  'Dolibarr USCSS — dernière facture : FAC-2025-0089 · 4 800€ HT · réglée.',
+    'relance':  'Je prépare un email de relance pour DEV-2025-0142. Tu veux un ton professionnel ou direct ?',
+    'default':  'Contexte USCSS chargé. Dolibarr connecté. Skills : Devis, Facturation, Tickets. Que veux-tu faire ?'
+  },
+  margep: {
+    'devis':    'Marge Pro — Dolibarr non connecté. Je peux accéder aux données en lecture manuelle. DEV-2025-0130 accepté (8 900€).',
+    'connecter':'Pour connecter Dolibarr à Marge Pro, il me faut l\'URL de l\'instance et une clé API. Tu peux les renseigner dans Paramètres > Connecteurs.',
+    'default':  'Contexte Marge Pro chargé. Connecteurs : non configurés. Je travaille avec les données saisies manuellement.'
+  },
+  all: {
+    'devis':    'Résumé devis toutes sociétés :\n• USCSS : 3 devis ouverts (42k€)\n• Marge Pro : 1 accepté (8 900€)\n• OpenTechno : aucun (interne)',
+    'alerte':   'Alertes globales :\n• OpenTechno RMM : 2 alertes\n• Autres sociétés : nominal',
+    'rapport':  'Génération du rapport cross-sociétés... Je compile Proxmox, Dolibarr USCSS et les données manuelles. Un instant.',
+    'connecter':'Connecteurs disponibles : Proxmox (OT ✓), 3CX (OT ✓), Dolibarr (USCSS ✓), Dolibarr Marge Pro (à configurer).',
+    'default':  'Mode global actif — je vois toutes les sociétés. Quel est ton besoin ?'
+  }
+};
+
+function getResp(text) {
+  const lower = text.toLowerCase();
+  const ctx = ctxResponses[activeCtx] || ctxResponses.all;
+  for (const [k, v] of Object.entries(ctx)) {
+    if (k !== 'default' && lower.includes(k)) return v;
+  }
+  // fallback cross-ctx
+  for (const [k, v] of Object.entries(ctxResponses.all)) {
+    if (k !== 'default' && lower.includes(k)) return v;
+  }
+  return ctx.default || ctxResponses.all.default;
+}
+
+function sendMessage() {
+  const text = input.value.trim(); if (!text) return;
+  appendMsg(text, 'user');
+  input.value = ''; input.style.height = 'auto';
+  const typing = document.getElementById('typing');
+  typing.classList.add('visible');
+  messages.scrollTop = messages.scrollHeight;
+  setTimeout(() => {
+    typing.classList.remove('visible');
+    const co = COMPANIES[activeCtx];
+    let badge = '';
+    if (co) badge = `<div class="msg-ctx-badge" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:${co.color}"><div style="width:4px;height:4px;border-radius:50%;background:${co.color}"></div> ${co.name}</div>`;
+    appendMsg(getResp(text), 'ada', badge);
+    messages.scrollTop = messages.scrollHeight;
+  }, 800 + Math.random() * 500);
+}
+
+function appendMsg(text, who, badge='') {
+  const div = document.createElement('div');
+  div.className = 'msg msg-' + who;
+  if (who === 'ada') {
+    div.innerHTML = '<div class="msg-name"></div>' + badge + text.replace(/\n/g,'<br>');
+  } else {
+    div.textContent = text;
+  }
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+</script>
+</body>
+</html>

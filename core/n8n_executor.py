@@ -22,10 +22,10 @@ _WEBHOOK_TO_FUNC: dict[str, str] = {
     "set-timer":       "set_timer",
     "set-alarm":       "set_alarm",
     "web-search":      "web_search",
+    "shell-exec":      "shell_exec",
     "get-info":        "get_system_info",
     "calendar-event":  "create_calendar_event",
     "weather":         "weather",
-    "shell-exec":      "shell_exec",
 }
 
 
@@ -43,6 +43,7 @@ class N8NExecutor:
     def __init__(self) -> None:
         self._down_since: float = 0.0  # monotonic timestamp of last failure; 0 = healthy
         self._lock = threading.Lock()
+        self._plugin_webhooks: dict[str, str] = {}  # action → URL, enregistrés par les plugins
 
     # ------------------------------------------------------------------
     # Settings
@@ -89,6 +90,19 @@ class N8NExecutor:
             return {"success": False, "message": str(exc), "data": None}
 
     # ------------------------------------------------------------------
+    # Plugin webhook registration
+    # ------------------------------------------------------------------
+
+    def register_plugin_webhooks(self, webhooks: dict[str, str]) -> None:
+        """
+        Enregistre dynamiquement les webhooks des plugins actifs.
+        Ces entrées sont consultées en priorité dans call() avant _WEBHOOK_TO_FUNC.
+        Appelé au démarrage après register_enabled_plugins().
+        """
+        self._plugin_webhooks.update(webhooks)
+        logger.info("[N8N] %d webhooks plugins enregistrés", len(webhooks))
+
+    # ------------------------------------------------------------------
     # Response normalisation
     # ------------------------------------------------------------------
 
@@ -117,9 +131,17 @@ class N8NExecutor:
     def call(self, action: str, params: dict) -> dict:
         """
         POST /webhook/<action> with {"params": params}.
+        Priorité : _plugin_webhooks > URL n8n configurée > FunctionExecutor fallback.
         Returns {success, message, data}. Never raises.
         """
         base_url, timeout_s, fallback_enabled, cooldown_s = self._load_settings()
+
+        # Résoudre l'URL effective : plugin webhook en priorité, sinon URL n8n base
+        plugin_url = self._plugin_webhooks.get(action)
+        if plugin_url:
+            effective_url = plugin_url
+        else:
+            effective_url = f"{base_url}/{action}"
 
         # Check cooldown under lock
         with self._lock:
@@ -134,10 +156,10 @@ class N8NExecutor:
                     "data": None}
 
         # Attempt HTTP call (outside lock — slow operation)
-        logger.info("[N8N] → POST %s/%s params=%s", base_url, action, params)
+        logger.info("[N8N] → POST %s params=%s", effective_url, params)
         try:
             resp = requests.post(
-                f"{base_url}/{action}",
+                effective_url,
                 json={"params": params},
                 timeout=timeout_s,
             )

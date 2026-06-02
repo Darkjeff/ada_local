@@ -42,6 +42,11 @@ class UnifiedEntityService:
             self._providers["home_assistant"] = ha_provider
         except Exception as e:
             print(f"[UnifiedEntityService] Could not register ha_provider: {e}")
+        try:
+            from core.providers.domoticz_provider import domoticz_provider
+            self._providers["domoticz"] = domoticz_provider
+        except Exception as e:
+            print(f"[UnifiedEntityService] Could not register domoticz_provider: {e}")
 
     # ------------------------------------------------------------------ #
     # Query                                                                #

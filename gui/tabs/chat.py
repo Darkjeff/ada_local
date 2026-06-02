@@ -283,6 +283,25 @@ class ChatTab(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+    # MODULE_SOCIETE: injection de la barre de contexte société
+    def _inject_context_bar(self, context_bar: "QWidget") -> None:
+        """
+        # MODULE_SOCIETE: insère la ChatContextBar au-dessus de la zone de saisie.
+        Appelé depuis app.py après initialisation du ChatTab.
+        """
+        # Trouver l'index de input_bar dans chat_layout (dernier widget avant addWidget(chat_content))
+        chat_layout = self.chat_content.layout()
+        if chat_layout is None:
+            return
+        # Insérer avant le dernier item (input_bar)
+        count = chat_layout.count()
+        context_bar.setStyleSheet(
+            "background-color: rgba(15, 21, 36, 0.9);"
+            "border-top: 1px solid #1a2236;"
+        )
+        context_bar.setFixedHeight(48)
+        chat_layout.insertWidget(count - 1, context_bar)
+
     def scroll_to_bottom(self):
         scrollbar = self.chat_scroll.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())

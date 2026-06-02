@@ -235,11 +235,11 @@ class HomeAutomationTab(QWidget):
         self._build_ui()
         self._start_badge_check()
         self._load_entities()
-        settings.setting_changed.connect(self._on_setting_changed)
 
         from PySide6.QtWidgets import QApplication
         QApplication.instance().aboutToQuit.connect(self._cleanup)
         i18n.language_changed.connect(self._on_language_changed)
+        settings.setting_changed.connect(self._on_setting_changed)
 
     # ------------------------------------------------------------------ #
     # Build UI                                                             #
@@ -568,6 +568,14 @@ class HomeAutomationTab(QWidget):
         self._start_badge_check()
         self._load_entities()
 
+    def _toggle_edit_mode(self):
+        self._edit_mode = not self._edit_mode
+        self._edit_btn.setIcon(FIF.CLOSE if self._edit_mode else FIF.EDIT)
+        self._rebuild_grid()
+
+    def _on_language_changed(self, _lang: str = ""):
+        pass  # Filter labels are not i18n-translated (matched against ADA type constants)
+
     def _on_setting_changed(self, key: str, value):
         """Auto-refresh when a provider is enabled or disabled."""
         _PROVIDER_ENABLED_KEYS = (
@@ -577,14 +585,6 @@ class HomeAutomationTab(QWidget):
         )
         if key in _PROVIDER_ENABLED_KEYS:
             self._on_refresh()
-
-    def _toggle_edit_mode(self):
-        self._edit_mode = not self._edit_mode
-        self._edit_btn.setIcon(FIF.CLOSE if self._edit_mode else FIF.EDIT)
-        self._rebuild_grid()
-
-    def _on_language_changed(self, _lang: str = ""):
-        pass  # Filter labels are not i18n-translated (matched against ADA type constants)
 
     def _cleanup(self):
         self._destroyed = True

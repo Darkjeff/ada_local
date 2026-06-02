@@ -2,20 +2,36 @@
 Centralized configuration for Pocket AI.
 """
 
+# --- Radar Local Event Console ---
+RADAR_ENABLED: bool = True
+RADAR_DB_PATH: str = "data/radar/events.sqlite"
+RADAR_MAX_EVENTS: int = 100_000
+RADAR_RETENTION_DAYS: int = 30
+RADAR_TEXT_PREVIEW_MAX: int = 300
+RADAR_SENSITIVE_FIELDS: list = [
+    "api_key", "token", "access_token", "refresh_token",
+    "authorization", "password", "secret", "cookie",
+    "session_cookie", "private_key",
+]
+
 # --- Model Configuration ---
-RESPONDER_MODEL = "qwen3:1.7b"
+RESPONDER_MODEL = "mistral:latest"
 OLLAMA_URL = "http://localhost:11434/api"
 
 # --- Marketing / MargePro ---
+# Modèle utilisé pour la génération marketing (peut être différent du modèle principal)
+# Ex : "deepseek-r1:7b", "mistral:7b", "llama3.1:8b" pour de meilleures copies
 MARKETING_MODEL = RESPONDER_MODEL  # Même modèle par défaut, remplace si besoin
 
 # Contexte produit MargePro — chargé dynamiquement depuis skills/margepro/SKILL.md
+# Édite ce fichier depuis l'onglet Compétences de l'UI pour mettre à jour le contexte.
 def _load_margepro_context() -> str:
     import re as _re
     from pathlib import Path as _Path
     skill_path = _Path(__file__).parent / "skills" / "margepro" / "SKILL.md"
     try:
         raw = skill_path.read_text(encoding="utf-8")
+        # Retire le frontmatter YAML (entre les deux ---)
         m = _re.match(r"^---[ \t]*\r?\n.*?\r?\n---[ \t]*\r?\n(.*)", raw, _re.DOTALL)
         return m.group(1).strip() if m else raw.strip()
     except Exception:
@@ -167,26 +183,17 @@ FUNCTIONS = [
         "type": "function",
         "function": {
             "name": "play_music",
-            "description": (
-                "Play music by genre or artist on a media player in a room. "
-                "Use whenever the user wants to listen to music. "
-                "Examples: 'lance du jazz dans le salon', 'joue du rock', "
-                "'mets de la soul dans la cuisine', 'play some jazz in the living room'."
-            ),
+            "description": "Play music by genre or artist on the default media player. Use when the user wants to listen to music.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "genre": {
                         "type": "string",
-                        "description": "Music genre, e.g. jazz, rock, classical, blues, electro, soul, techno",
+                        "description": "Music genre, e.g. jazz, rock, classical, blues, electro",
                     },
                     "artist": {
                         "type": "string",
                         "description": "Artist name, e.g. Ween, Miles Davis, Pink Floyd",
-                    },
-                    "room": {
-                        "type": "string",
-                        "description": "Room or zone where to play music, e.g. salon, cuisine, chambre, bureau",
                     },
                 },
             },
@@ -255,6 +262,17 @@ FUNCTIONS = [
         },
     },
 ]
+
+# MODULE_SOCIETE: feature flag — mettre à False pour désactiver entièrement le module
+MODULES_ENABLED: dict = {
+    "societe":    True,
+    "domotique":  True,    # → DomotiquePlugin (univers: home)
+    "proxmox":    True,    # → ProxmoxPlugin (univers: opent)
+    "rmm":        True,    # → RmmPlugin (univers: opent)
+    "telephony":  False,   # → TelephonyPlugin (off par défaut)
+    "margepro":   True,    # → MargeProPlugin (univers: margep)
+    "music":      False,   # → module Musique (off par défaut)
+}
 
 # --- Console Colors ---
 GRAY = "\033[90m"

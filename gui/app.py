@@ -31,16 +31,28 @@ from gui.tabs.cad import CadTab
 from gui.tabs.home_automation import HomeAutomationTab
 from gui.tabs.printers import PrintersTab
 from gui.tabs.skills import SkillsTab
+from gui.tabs.marketing import MarketingTab
 from gui.tabs.memory import MemoryTab
 from gui.tabs.senses import SensesTab
 from gui.tabs.infrastructure import InfrastructureTab
 from gui.tabs.music import MusicTab
 from gui.tabs.library import LibraryTab
-from gui.tabs.marketing import MarketingTab
 from gui.components.system_monitor import SystemMonitor
 from gui.components.voice_indicator import VoiceIndicator
 from core.llm import preload_models
 from core.i18n import tr
+
+# MODULE_SOCIETE: guard — imports conditionnels selon MODULES_ENABLED
+from config import MODULES_ENABLED as _MODULES_ENABLED
+from core.plugin_registry import register_enabled_plugins, plugin_registry
+if _MODULES_ENABLED.get("societe", False):
+    from gui.tabs.societe_dashboard import CompaniesDashboardTab
+    from gui.tabs.societe_detail import CompanyDetailTab
+    from gui.components.societe_context_bar import ChatContextBar as SocieteContextBar
+else:
+    CompaniesDashboardTab = None
+    CompanyDetailTab = None
+    SocieteContextBar = None
 
 
 class ModelPreloaderThread(QThread):
@@ -90,9 +102,30 @@ class MainWindow(FluentWindow):
         self.planner_tab = None
         self.briefing_view = None
         self.home_tab = None
+        # MODULE_SOCIETE: pointeurs onglets societe
+        self.societe_dashboard_tab = None
+        self.societe_detail_tabs: dict[str, "CompanyDetailTab"] = {}
+        self.societe_context_bar: "SocieteContextBar | None" = None
         
         # Flag to prevent duplicate signal connections
         self._chat_signals_connected = False
+
+        # MODULE_SOCIETE: enregistrement des plugins actifs (tous modules)
+        register_enabled_plugins()
+
+        # Enrichir le semantic_router avec les utterances des plugins
+        try:
+            from core.semantic_router import inject_plugin_utterances
+            inject_plugin_utterances(plugin_registry.combined_semantic_utterances())
+        except Exception as _e:
+            print(f"[App] inject_plugin_utterances: {_e}")
+
+        # Enregistrer les webhooks n8n des plugins
+        try:
+            from core.n8n_executor import n8n_executor as _n8n
+            _n8n.register_plugin_webhooks(plugin_registry.combined_n8n_webhooks())
+        except Exception as _e:
+            print(f"[App] register_plugin_webhooks: {_e}")
 
         self._init_window()
         self._connect_signals()
@@ -227,12 +260,12 @@ class MainWindow(FluentWindow):
         self.browser_lazy = LazyTab(BrowserTab, "browserInterface")
         self.printers_lazy = LazyTab(PrintersTab, "printersInterface")
         self.skills_lazy = LazyTab(SkillsTab, "skillsInterface")
+        self.marketing_lazy = LazyTab(MarketingTab, "marketingInterface")
         self.memory_lazy = LazyTab(MemoryTab, "memoryInterface")
         self.senses_lazy = LazyTab(SensesTab, "sensesInterface")
         self.infra_lazy  = LazyTab(InfrastructureTab, "infrastructureInterface")
         self.music_lazy  = LazyTab(MusicTab, "musicInterface")
         self.library_lazy = LazyTab(LibraryTab, "libraryInterface")
-        self.marketing_lazy = LazyTab(MarketingTab, "marketingInterface")
 
         self.addSubInterface(self.chat_lazy, FIF.CHAT, tr("nav.chat"))
         self.addSubInterface(self.planner_lazy, FIF.CALENDAR, tr("nav.planner"))
@@ -242,12 +275,17 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.browser_lazy, FIF.GLOBE, tr("nav.browser"))
         self.addSubInterface(self.printers_lazy, FIF.TILES, tr("nav.printers"))
         self.addSubInterface(self.skills_lazy, FIF.BOOK_SHELF, tr("nav.skills"))
+        self.addSubInterface(self.marketing_lazy, FIF.PENCIL_INK, tr("nav.marketing"))
         self.addSubInterface(self.memory_lazy, FIF.HISTORY, tr("nav.memory"))
         self.addSubInterface(self.senses_lazy, FIF.HEADPHONE, tr("nav.senses"))
         self.addSubInterface(self.music_lazy, FIF.MUSIC, tr("nav.music"))
         self.addSubInterface(self.library_lazy, FIF.BOOK_SHELF, tr("nav.library"))
         self.addSubInterface(self.infra_lazy, FIF.IOT, tr("nav.infrastructure"))
-        self.addSubInterface(self.marketing_lazy, FIF.PENCIL_INK, tr("nav.marketing"))
+
+        # MODULE_SOCIETE: guard — ajout onglet societes si module activé
+        if _MODULES_ENABLED.get("societe", False) and CompaniesDashboardTab is not None:
+            self.societe_lazy = LazyTab(CompaniesDashboardTab, "societeDashboardInterface")
+            self.addSubInterface(self.societe_lazy, FIF.PEOPLE, tr("nav.societes"))
 
         # Settings at bottom
         self.settings_lazy = LazyTab(SettingsTab, "settingsInterface")
@@ -277,6 +315,18 @@ class MainWindow(FluentWindow):
         
         # Initial sidebar refresh
         self.chat_tab.refresh_sidebar()
+
+        # MODULE_SOCIETE: insérer la ChatContextBar si module actif
+        if _MODULES_ENABLED.get("societe", False) and SocieteContextBar is not None:
+            try:
+                context_bar = SocieteContextBar()
+                self.societe_context_bar = context_bar
+                context_bar.context_changed.connect(self.handlers.set_societe_context)
+                # Insérer la barre au-dessus de la saisie du chat
+                if hasattr(self.chat_tab, "_inject_context_bar"):
+                    self.chat_tab._inject_context_bar(context_bar)
+            except Exception as exc:
+                print(f"[App] MODULE_SOCIETE: erreur context bar: {exc}")
 
     def _on_send(self, text):
         """Forward send request to handlers."""
@@ -325,6 +375,11 @@ class MainWindow(FluentWindow):
                 self.briefing_view = real_widget
             elif obj_name == "homeInterface":
                 self.home_tab = real_widget
+            # MODULE_SOCIETE: initialisation du dashboard societes
+            elif obj_name == "societeDashboardInterface":
+                self.societe_dashboard_tab = real_widget
+                if _MODULES_ENABLED.get("societe", False) and real_widget:
+                    real_widget.company_selected.connect(self._on_company_selected)
             elif obj_name == "browserInterface":
                 # No signals to connect for browser yet
                 pass
@@ -340,7 +395,29 @@ class MainWindow(FluentWindow):
             if widget.objectName() == route_key:
                 self.switchTo(widget)
                 return
-    
+
+    # MODULE_SOCIETE: navigation vers la vue détail d'une société
+    def _on_company_selected(self, company_id: str) -> None:
+        """# MODULE_SOCIETE: Ouvre/réaffiche la vue détail d'une société."""
+        if not _MODULES_ENABLED.get("societe", False) or CompanyDetailTab is None:
+            return
+        route = f"societeDetail_{company_id}"
+        # Vérifier si l'onglet existe déjà dans la pile
+        for i in range(self.stackedWidget.count()):
+            widget = self.stackedWidget.widget(i)
+            if widget.objectName() == route:
+                self.switchTo(widget)
+                return
+        # Créer le tab détail à la volée
+        detail = CompanyDetailTab(company_id)
+        detail.back_requested.connect(
+            lambda: self._navigate_to_tab("societeDashboardInterface")
+        )
+        self.addSubInterface(detail, FIF.PEOPLE, company_id)
+        self.societe_detail_tabs[company_id] = detail
+        self.switchTo(detail)
+
+
     # --- Public Methods for Handlers (Proxy/Facade) ---
     # These now check if the tab exists before calling
     

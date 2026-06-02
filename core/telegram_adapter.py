@@ -11,7 +11,6 @@ Architecture:
 
 import base64
 import json
-import re
 import threading
 import time
 from datetime import datetime
@@ -35,7 +34,7 @@ def _system_prompt() -> str:
     except Exception:
         lang_instr = "Réponds en français. Sois concis et précis."
     return (
-        f"Tu es ADA, une assistante IA locale tournant sur l'ordinateur de Jeff. "
+        f"Tu es ADA, une assistante IA locale tournant sur l'ordinateur de {settings.get('user.name', 'ton utilisateur')}. "
         f"{lang_instr} "
         f"Tu es accessible via Telegram — sois utile, précise et naturelle."
     )
@@ -48,7 +47,6 @@ Commandes disponibles :
 /myid — afficher ton chat ID (pour les briefings)
 /status — état du système
 /clear — effacer l'historique de cette conversation
-/books <recherche> — chercher un livre dans la bibliothèque Calibre
 
 Envoie n'importe quel message texte ou une photo pour interagir avec ADA."""
 
@@ -57,93 +55,6 @@ _INFRA_TRIGGERS = frozenset({
     "état infra", "etat infra", "status infra", "infrastructure status",
     "état de l'infra", "etat de l infra",
 })
-
-# ── Fast-path lumière (bypass Ollama) ────────────────────────────────────────
-# Détecte "allume/éteins la lumière <pièce>" sans LLM.
-# Fonctionne même sous forte charge CPU.
-
-_LIGHT_ON_KW  = frozenset({
-    "allume", "allumer", "active", "activer", "mets", "ouvre", "on", "tourne",
-})
-_LIGHT_OFF_KW = frozenset({
-    "éteins", "eteins", "éteindre", "eteindre", "coupe", "couper", "off",
-    "ferme", "fermer", "éteint", "eteint",
-})
-_LIGHT_KW_RE  = re.compile(r"lumi[eèé]re?", re.I)
-_ROOM_PREP_RE = re.compile(
-    r"(?:du|de\s+la|de\s+l['''\s]|dans\s+le|dans\s+la|dans\s+l['''\s]|au|à)\s*(\w+)",
-    re.I,
-)
-_SKIP_WORDS = frozenset({
-    "la", "le", "les", "du", "de", "des", "l", "un", "une",
-    "dans", "au", "aux", "en", "et", "ou", "lumi", "lumiere", "lumière",
-})
-
-
-def _parse_light_cmd(text: str):
-    """Return (action, room) if text is a light command, else None."""
-    t = text.lower().strip()
-    if not _LIGHT_KW_RE.search(t):
-        return None
-
-    words = re.sub(r"['''\-]", " ", t).split()
-    action = None
-    for w in words:
-        w = w.strip(".,!?;:")
-        if w in _LIGHT_ON_KW:
-            action = "on"
-            break
-        if w in _LIGHT_OFF_KW:
-            action = "off"
-            break
-    if action is None:
-        return None
-
-    # Room: prefer preposition match ("du bureau" → "bureau")
-    m = _ROOM_PREP_RE.search(t)
-    if m:
-        return action, m.group(1)
-
-    # Fallback: last significant word after "lumière"
-    parts = _LIGHT_KW_RE.split(t, maxsplit=1)
-    after = parts[-1] if len(parts) > 1 else ""
-    candidates = [
-        w.strip(".,!?;: ") for w in after.split()
-        if w.strip(".,!?;: ") not in _SKIP_WORDS and w.strip(".,!?;: ")
-    ]
-    return action, (candidates[0] if candidates else "all")
-
-
-# ── Fast-path musique (bypass Ollama) ────────────────────────────────────────
-_MUSIC_PLAY_KW = frozenset({
-    "joue", "jouer", "lance", "lancer", "mets", "mettre", "play",
-    "démarre", "demarre", "diffuse",
-})
-_MUSIC_GENRES = frozenset({
-    "jazz", "rock", "soul", "blues", "classique", "classical", "electro",
-    "techno", "pop", "reggae", "metal", "folk", "rap", "hiphop", "hip-hop",
-    "ambient", "lofi", "lo-fi", "funk", "disco", "country", "rnb", "r&b",
-})
-_MUSIC_ROOM_RE = re.compile(
-    r"(?:dans\s+le|dans\s+la|dans\s+l['''\s]|au|en)\s+(\w+)", re.I
-)
-
-
-def _parse_music_cmd(text: str):
-    """Return (genre, room) if text is a music play command, else None.
-    Returns None if neither genre nor room can be extracted."""
-    t = text.lower().strip()
-    words = set(re.sub(r"['''\-]", " ", t).split())
-    if not (words & _MUSIC_PLAY_KW):
-        return None
-
-    genre = next((g for g in _MUSIC_GENRES if g in t), "")
-    m = _MUSIC_ROOM_RE.search(t)
-    room = m.group(1) if m else ""
-
-    if genre or room:
-        return genre, room
-    return None
 
 
 class TelegramAdapter:
@@ -271,25 +182,16 @@ class TelegramAdapter:
         text = msg.get("text", "")
         photo = msg.get("photo")
 
-        # Access control — default-deny once owner_chat_id is configured.
-        # Authorized set = owner + allowed_users.
-        # If nothing is configured yet, allow all (needed to run /myid for initial setup).
-        owner_raw = settings.get("telegram.owner_chat_id", "")
-        owner_id = int(owner_raw) if owner_raw else None
-        allowed_users: list = settings.get("telegram.allowed_users", [])
-        authorized: set[int] = set(allowed_users)
-        if owner_id:
-            authorized.add(owner_id)
-        if authorized and chat_id not in authorized:
-            print(f"[Telegram] Blocked unauthorized chat_id={chat_id}")
+        # Check allowed users (if configured)
+        allowed = settings.get("telegram.allowed_users", [])
+        if allowed and chat_id not in allowed:
             return
 
         # Slash commands (strip @botname suffix e.g. /myid@ada_jeff_bot)
         if text.startswith("/"):
-            parts = text.split(None, 1)
-            cmd = parts[0].lower().split("@")[0]  # strip @botname if present
-            arg = parts[1].strip() if len(parts) > 1 else ""
-            self._handle_command(chat_id, cmd, arg)
+            cmd = text.split()[0].lower()
+            cmd = cmd.split("@")[0]  # strip @botname if present
+            self._handle_command(chat_id, cmd)
             return
 
         self._send_typing(chat_id)
@@ -299,7 +201,7 @@ class TelegramAdapter:
         elif text:
             self._handle_text(chat_id, text)
 
-    def _handle_command(self, chat_id: int, cmd: str, arg: str = ""):
+    def _handle_command(self, chat_id: int, cmd: str):
         if cmd in ("/help", "/start"):
             self._send(chat_id, _HELP_TEXT)
 
@@ -331,97 +233,16 @@ class TelegramAdapter:
             memory_store.clear_session(session_id)
             self._send(chat_id, "🗑️ Historique effacé.")
 
-        elif cmd == "/books":
-            self._handle_books(chat_id, arg)
-
-    def _handle_books(self, chat_id: int, query: str) -> None:
-        """Search Calibre library and send formatted results."""
-        if not query:
-            self._send(
-                chat_id,
-                "📚 *Recherche de livres*\n"
-                "Utilisation : `/books <titre, auteur ou genre>`\n"
-                "Exemples :\n"
-                "  `/books Dune`\n"
-                "  `/books Frank Herbert`\n"
-                "  `/books science fiction`\n"
-                "  `/books epub à lire`",
-            )
-            return
-
-        self._send_typing(chat_id)
-        from core.calibre_manager import calibre_manager
-
-        print(f"[Telegram] /books query={query!r}")
-        books = calibre_manager.search_books(query, "all", 5)
-
-        if not books:
-            self._send(chat_id, f"❌ Aucun livre trouvé pour « {query} ».")
-            return
-
-        lines = [f"📚 *{len(books)} résultat(s) pour « {query} » :*"]
-        for b in books:
-            year  = f" \\({b['year']}\\)" if b.get("year") else ""
-            fmts  = ", ".join(b.get("formats") or []).upper() or "—"
-            title  = b["title"].replace("*", "\\*").replace("_", "\\_")
-            author = (b.get("author") or "—").replace("*", "\\*")
-            block  = f"\n📖 *{title}*{year}\n✍️ _{author}_\n📄 {fmts}"
-            dl = b.get("download_url", "")
-            if dl:
-                block += f"\n⬇️ [Télécharger]({dl})"
-            lines.append(block)
-
-        self._send(chat_id, "\n".join(lines))
-
     def _handle_text(self, chat_id: int, text: str):
         session_id = f"telegram_{chat_id}"
 
-        # --- Routing déterministe (bypass Ollama — instantané) --------------
+        # --- Routing déterministe : état infra ---
         text_lower = text.lower().strip()
-
-        # État infra
         if any(trigger in text_lower for trigger in _INFRA_TRIGGERS):
             from core.runtime_state import runtime_state
             runtime_state.refresh()
             self._send(chat_id, runtime_state.format_infra_status_fr())
             return
-
-        # Lumière
-        light_cmd = _parse_light_cmd(text_lower)
-        if light_cmd:
-            action, room = light_cmd
-            print(f"[Telegram] Fast-path → control_light action={action} room={room}")
-            res = function_executor.execute("control_light", {"action": action, "room": room})
-            if res.get("success"):
-                icon = "💡" if action == "on" else "🌑"
-                label = "allumée" if action == "on" else "éteinte"
-                self._send(chat_id, f"{icon} Lumière *{room}* {label}.")
-            else:
-                self._send(chat_id, f"❌ {res.get('message', 'Erreur contrôle lumière.')}")
-            return
-
-        # Musique
-        music_cmd = _parse_music_cmd(text_lower)
-        if music_cmd:
-            genre, room = music_cmd
-            params = {}
-            if genre:
-                params["genre"] = genre
-            if room:
-                params["room"] = room
-            print(f"[Telegram] Fast-path → play_music {params}")
-            res = function_executor.execute("play_music", params)
-            if res.get("success"):
-                parts = []
-                if genre:
-                    parts.append(f"*{genre}*")
-                if room:
-                    parts.append(f"dans le *{room}*")
-                self._send(chat_id, f"🎵 Lecture {' '.join(parts)}…")
-            else:
-                self._send(chat_id, f"❌ {res.get('message', 'Erreur lecture musique.')}")
-            return
-        # ---------------------------------------------------------------
 
         with self._lock:
             history = self._histories.setdefault(chat_id, [])
@@ -447,7 +268,7 @@ class TelegramAdapter:
         print(f"[Telegram] Route: {route}")
 
         if route == "function_gemma":
-            response = self._call_with_tools(text, messages, chat_id=chat_id)
+            response = self._call_with_tools(text, messages)
         elif route == "vision":
             response = self._handle_vision(text, chat_id)
         else:
@@ -542,7 +363,7 @@ class TelegramAdapter:
             print(f"[Telegram] Vision error: {e}")
             return "Erreur lors de l'accès à la caméra."
 
-    def _call_with_tools(self, text: str, conversation_messages: list, chat_id: int = 0) -> str:
+    def _call_with_tools(self, text: str, conversation_messages: list) -> str:
         """Route through Ollama tool-calling, like voice_assistant._handle_function_call."""
         try:
             resp = requests.post(
@@ -555,19 +376,7 @@ class TelegramAdapter:
                             "content": (
                                 "You are a function dispatcher. You MUST call one of the available tools. "
                                 "NEVER respond with plain text. "
-                                "Tool selection rules:\n"
-                                "- play_music: for ANY music request "
-                                "(lance du jazz, joue du rock, mets de la musique, play some jazz). "
-                                "Extract genre (jazz/rock/soul/...) and room (salon/cuisine/...) if mentioned.\n"
-                                "- control_light: for lights (allume/éteins la lumière, turn on/off lights).\n"
-                                "- set_timer: for timers (minuterie, timer, dans X minutes).\n"
-                                "- web_search: for internet searches.\n"
-                                "- passthrough: ONLY for greetings, chitchat, or questions needing no action.\n"
-                                "Examples:\n"
-                                "- 'lance du jazz dans le salon' → play_music(genre='jazz', room='salon')\n"
-                                "- 'joue du rock' → play_music(genre='rock')\n"
-                                "- 'mets de la soul dans la cuisine' → play_music(genre='soul', room='cuisine')\n"
-                                "- 'allume la lumière' → control_light(action='on', room='all')"
+                                "For greetings or conversational questions: call passthrough."
                             ),
                         },
                         {"role": "user", "content": text},
@@ -595,14 +404,6 @@ class TelegramAdapter:
 
         if func_name == "passthrough":
             return self._call_llm(conversation_messages)
-
-        # Enforce shell_exec.require_owner: only owner can trigger shell commands via Telegram
-        if func_name == "shell_exec" and settings.get("shell_exec.require_owner", True):
-            owner_raw = settings.get("telegram.owner_chat_id", "")
-            owner_id = int(owner_raw) if owner_raw else None
-            if not owner_id or chat_id != owner_id:
-                print(f"[Telegram] shell_exec blocked for non-owner chat_id={chat_id}")
-                return "⛔ Les commandes shell sont réservées au propriétaire du bot."
 
         result = function_executor.execute(func_name, params)
         success = result.get("success", False)

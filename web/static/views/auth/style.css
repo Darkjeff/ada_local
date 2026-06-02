@@ -1,0 +1,201 @@
+/* ================================================================
+   ADA — Auth view styles
+   ================================================================ */
+
+.auth-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 1.5rem;
+  background: var(--bg-base, #0f1117);
+}
+
+.auth-card {
+  background: #1e2330;
+  border-radius: 20px;
+  padding: 2.5rem 2rem;
+  max-width: 420px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .5rem;
+  border: 1px solid rgba(123,104,238,.2);
+}
+
+.auth-logo {
+  width: 56px; height: 56px;
+  background: #7b68ee;
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.75rem; font-weight: 900; color: #fff;
+  margin-bottom: .25rem;
+}
+
+.auth-title {
+  font-size: 1.6rem; font-weight: 800;
+  color: #c7d2fe; margin: 0;
+}
+
+.auth-subtitle {
+  font-size: .9rem; color: #64748b;
+  text-align: center; margin: 0;
+  max-width: 280px;
+}
+
+/* ── QR area ─────────────────────────────────────────────────── */
+
+.auth-qr-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .75rem;
+  width: 100%;
+  padding: 1rem 0;
+}
+
+.auth-qr-img {
+  width: min(260px, 90vw);
+  height: min(260px, 90vw);
+  border-radius: 12px;
+  border: 3px solid rgba(123,104,238,.35);
+  display: block;
+  image-rendering: pixelated;
+}
+
+.auth-scan-hint,
+.auth-expire-hint {
+  font-size: .8rem;
+  color: #64748b;
+  text-align: center;
+  margin: 0;
+}
+
+.auth-qr-unavail {
+  color: #94a3b8;
+  font-size: .85rem;
+  text-align: center;
+}
+
+/* Bootstrap mode */
+.auth-bootstrap-msg {
+  font-size: .85rem;
+  color: #94a3b8;
+  text-align: center;
+  line-height: 1.5;
+  background: rgba(251,191,36,.08);
+  border: 1px solid rgba(251,191,36,.25);
+  border-radius: 10px;
+  padding: .75rem 1rem;
+}
+
+.auth-bootstrap-link {
+  display: inline-block;
+  margin-top: .25rem;
+  color: #7b68ee;
+  font-size: .85rem;
+  text-decoration: none;
+}
+.auth-bootstrap-link:hover { text-decoration: underline; }
+
+/* ── Status ──────────────────────────────────────────────────── */
+
+.auth-status {
+  font-size: .875rem;
+  text-align: center;
+  min-height: 1.25rem;
+}
+.auth-status.ok   { color: #4ade80; }
+.auth-status.warn { color: #fbbf24; }
+
+/* ── Spinner ─────────────────────────────────────────────────── */
+
+.auth-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid rgba(123,104,238,.2);
+  border-top-color: #7b68ee;
+  border-radius: 50%;
+  animation: auth-spin .8s linear infinite;
+  margin: 1.5rem auto;
+}
+
+@keyframes auth-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Separator ───────────────────────────────────────────────── */
+
+.auth-sep {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  width: 100%;
+  color: #374151;
+  font-size: .8rem;
+}
+.auth-sep::before,
+.auth-sep::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #1e293b;
+}
+
+/* ── Recovery panel ──────────────────────────────────────────── */
+
+.auth-link {
+  background: none;
+  border: none;
+  color: #7b68ee;
+  font-size: .875rem;
+  cursor: pointer;
+  padding: .25rem .5rem;
+  border-radius: 6px;
+  transition: background .15s;
+}
+.auth-link:hover { background: rgba(123,104,238,.1); }
+
+.auth-recovery {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+.auth-recovery.hidden { display: none; }
+
+.auth-input {
+  width: 100%;
+  background: #252b3b;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  color: #e2e8f0;
+  padding: .6rem .8rem;
+  font-size: .95rem;
+}
+.auth-input:focus {
+  outline: none;
+  border-color: #7b68ee;
+}
+
+.auth-btn {
+  width: 100%;
+  padding: .65rem;
+  border: none;
+  border-radius: 8px;
+  background: #7b68ee;
+  color: #fff;
+  font-size: .95rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.auth-btn:hover    { background: #6b58de; }
+.auth-btn:disabled { background: #374151; cursor: not-allowed; }
+
+/* ── Error ───────────────────────────────────────────────────── */
+
+.auth-error {
+  color: #f87171;
+  font-size: .875rem;
+  text-align: center;
+}

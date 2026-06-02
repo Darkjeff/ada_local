@@ -38,6 +38,7 @@ Rules:
 - After navigating, read the page content and extract the answer.
 - Use "extract" or "done" as soon as you have the information.
 - If a page has no useful info, navigate to a different URL.
+- MANDATORY: always end the "result" value with "\n\nSources: <url>" listing the actual page URL(s) you read to get the answer. Never omit sources.
 """
 
 

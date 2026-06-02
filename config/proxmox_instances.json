@@ -1,0 +1,40 @@
+[
+  {
+    "id": "ns3166084.ip-51-178-64.eu",
+    "label": "OT-mutu",
+    "host": "51.178.64.60",
+    "port": 8006,
+    "user": "root@pam",
+    "token_name": "ada",
+    "token_value": "5a734a3f-24e8-4d7c-8f09-5b7c79bb4ac1",
+    "verify_ssl": false,
+    "enabled": true,
+    "universe": "opent",
+    "company_id": "opentechno",
+    "tags": [
+      "OT mutu"
+    ],
+    "pbs_id": null
+  },
+  {
+    "id": "ns3149773.ip-51-91-24.eu",
+    "label": "OT-ipbx",
+    "host": "51.91.24.179",
+    "port": 8006,
+    "user": "root@pam",
+    "token_name": "ada",
+    "token_value": "5a47daf6-f1d7-4763-aae2-21d5fc0d8d86",
+    "verify_ssl": false,
+    "enabled": true,
+    "universe": "opent",
+    "company_id": "opentechno",
+    "tags": [
+      "ot",
+      "pbx",
+      "ipbx",
+      "tel",
+      "voip"
+    ],
+    "pbs_id": null
+  }
+]

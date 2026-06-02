@@ -30,6 +30,11 @@ class TestHATTSDefaults(unittest.TestCase):
         defaults = _get_defaults()
         self.assertEqual(defaults["home_assistant"]["tts_service"], "tts.piper")
 
+    def test_ha_tts_target_entity_default(self):
+        """home_assistant.tts_target_entity defaults to empty string."""
+        defaults = _get_defaults()
+        self.assertEqual(defaults["home_assistant"]["tts_target_entity"], "")
+
     def test_ha_tts_service_is_string(self):
         """home_assistant.tts_service is a string."""
         defaults = _get_defaults()

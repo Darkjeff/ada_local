@@ -4,9 +4,16 @@ Pocket AI - Main Entry Point
 
 import os
 import faulthandler
+import multiprocessing
 
 # Print C stack trace on segfault — gives us the actual crash location
 faulthandler.enable()
+
+# RealtimeSTT spawns multiprocessing subprocesses for transcription.
+# On Linux the default start method is "fork", which copies Qt/CUDA/PyAudio
+# state into the child and causes a segfault in the main thread.
+# "spawn" starts a clean Python interpreter instead, avoiding the crash.
+multiprocessing.set_start_method("spawn", force=True)
 
 # Must be set BEFORE any tokenizers/HuggingFace/loky import to prevent
 # semaphore leaks and segfault at shutdown caused by loky process pool.
@@ -26,6 +33,12 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"  # reduce CUDA cleanup semaphores
 os.environ["PYTHONWARNINGS"] = "ignore::UserWarning"  # suppress resource_tracker semaphore warning in subprocesses
+
+# PyAudio / PortAudio stability on Linux
+# PA_ALSA_PLUGHW=1  : use ALSA plug layer (avoids direct hw format mismatches that segfault)
+# AUDIODEV=default  : fallback to system default device if PA_ALSA_PLUGHW is ignored
+os.environ.setdefault("PA_ALSA_PLUGHW", "1")
+os.environ.setdefault("AUDIODEV", "default")
 
 import warnings
 import sys

@@ -5,14 +5,28 @@ Function Executor - Executes Gemma-routed functions with actual backend calls.
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
-import random
 import threading
 import time
 import re
+import subprocess
+
+# Patterns that must never be executed regardless of context
+_SHELL_BLOCKLIST = [
+    r"format\s+[a-z]:",                      # disk format
+    r"rd\s+/s\s+/q\s+[a-z]:\\?$",           # recursive delete of drive root
+    r"rmdir\s+/s\s+/q\s+[a-z]:\\?$",
+    r"Remove-Item\s+-Recurse.*[a-z]:\\?$",   # PS recursive delete of drive root
+    r"del\s+/[fs].*\s+[a-z]:\\",            # del /f /s on drive root
+    r"shutdown\s+/[srh]",                    # system shutdown/restart/hibernate
+    r"net\s+user\s+administrator",           # privilege escalation
+    r"reg\s+delete\s+HKLM\\SYSTEM",         # critical registry deletion
+    r"bcdedit",                              # boot configuration
+    r"diskpart",                             # disk partitioning
+]
+_SHELL_BLOCKLIST_RE = [re.compile(p, re.IGNORECASE) for p in _SHELL_BLOCKLIST]
 
 from core.async_runner import run_async
 from core.settings_store import settings
-from core.safe_shell import safe_shell_executor
 
 
 @dataclass
@@ -389,11 +403,14 @@ class FunctionExecutor:
         total_seconds = 0
         
         import re
+        # Normalise "1h30" → "1h 30m" et "1h30m" → "1h 30m"
+        duration_str = re.sub(r'(\d+)h(\d+)(?:m(?:in)?)?(?:\b|$)', r'\1h \2m', duration_str)
+
         # Match patterns like "10 minutes", "1 hour", "30 seconds"
         patterns = [
-            (r'(\d+)\s*h(?:our)?s?', 3600),
-            (r'(\d+)\s*m(?:in(?:ute)?s?)?', 60),
-            (r'(\d+)\s*s(?:ec(?:ond)?s?)?', 1),
+            (r'(\d+)\s*h(?:eure?s?|our)?s?', 3600),
+            (r'(\d+)\s*m(?:in(?:ute)?s?|n)?', 60),
+            (r'(\d+)\s*s(?:ec(?:onde?)?s?)?', 1),
         ]
         
         for pattern, multiplier in patterns:
@@ -549,7 +566,10 @@ class FunctionExecutor:
             return {"success": False, "message": "No search query provided", "data": None}
         
         try:
-            from duckduckgo_search import DDGS
+            try:
+                from ddgs import DDGS  # New package name
+            except Exception:
+                from duckduckgo_search import DDGS  # Backward-compatible fallback
             
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results=5))
@@ -735,40 +755,84 @@ class FunctionExecutor:
 
 
     def _shell_exec(self, params: Dict) -> Dict:
-        """Delegate to SafeShellExecutor — three-level command policy."""
+        """Execute a shell command with safety checks (cross-platform)."""
+        import sys as _sys
         command = params.get("command", "").strip()
         if not command:
             return {"success": False, "message": "No command provided.", "data": None}
 
-        confirmed: bool = bool(params.get("confirmed", False))
-        timeout: int = min(int(params.get("timeout", 30)), 30)
+        # Safety: block destructive patterns
+        for pattern in _SHELL_BLOCKLIST_RE:
+            if pattern.search(command):
+                return {
+                    "success": False,
+                    "message": f"Commande bloquée pour des raisons de sécurité : '{command}'",
+                    "data": None,
+                }
 
-        return safe_shell_executor.execute(command, confirmed=confirmed, timeout=timeout)
+        timeout = min(int(params.get("timeout", 30)), 120)
+
+        if _sys.platform == "win32":
+            cmd_args = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+        else:
+            cmd_args = ["bash", "-c", command]
+
+        try:
+            result = subprocess.run(
+                cmd_args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                errors="replace",
+            )
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
+            output = stdout or stderr or "(no output)"
+
+            # Truncate at 3000 chars to keep LLM context manageable
+            if len(output) > 3000:
+                output = output[:3000] + "\n… (output truncated)"
+
+            success = result.returncode == 0
+            return {
+                "success": success,
+                "message": output,
+                "data": {
+                    "command": command,
+                    "returncode": result.returncode,
+                    "stdout": stdout[:1500],
+                    "stderr": stderr[:500],
+                },
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "message": f"Commande interrompue après {timeout}s (timeout).",
+                "data": None,
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Erreur d'exécution : {e}", "data": None}
 
 
     def _play_music(self, params: dict) -> dict:
         from core.music_manager import music_manager
         from core.ha_control import ha_manager
-        from core.playlist_server import playlist_server
 
-        genre  = params.get("genre", "").strip()
-        artist = params.get("artist", "").strip()
-        room   = params.get("room", "").strip()
-        count  = int(params.get("count", 15))
-
-        room_map  = settings.get("music.room_players", {})
-        entity_id = room_map.get(room.lower()) or settings.get("music.default_player", "")
+        entity_id = settings.get("music.default_player", "").strip()
         if not entity_id:
             return {
                 "success": False,
-                "message": "Aucun lecteur configuré. Ajoute un lecteur dans les paramètres musique.",
+                "message": "Aucun lecteur configuré. Configure le lecteur par défaut dans les paramètres musique.",
                 "data": None,
             }
 
+        genre = params.get("genre", "").strip()
+        artist = params.get("artist", "").strip()
+
         if genre:
-            songs = music_manager.get_songs_by_genre(genre, count=count)
+            songs = music_manager.get_songs_by_genre(genre)
         elif artist:
-            songs = music_manager.get_songs_by_artist(artist, count=count)
+            songs = music_manager.get_songs_by_artist(artist)
         else:
             return {"success": False, "message": "Précise un genre ou un artiste.", "data": None}
 
@@ -776,19 +840,14 @@ class FunctionExecutor:
             label = genre or artist
             return {"success": False, "message": f"Aucun morceau trouvé pour '{label}'.", "data": None}
 
-        random.shuffle(songs)
-        playlist = songs[:count]
-        m3u = music_manager.build_m3u(playlist)
-        url = playlist_server.serve(m3u)
-        ok  = ha_manager.play_media(entity_id, url)
+        song = songs[0]
+        url = music_manager.build_stream_url(song["id"])
+        ok = ha_manager.play_media(entity_id, url)
 
-        label = room or entity_id
         if ok:
-            return {
-                "success": True,
-                "message": f"Je lance {'du ' + genre if genre else artist} dans {label} — {len(playlist)} titres en queue.",
-                "data": {"entity_id": entity_id, "track_count": len(playlist)},
-            }
+            title = song.get("title", "?")
+            artist_name = song.get("artist", "?")
+            return {"success": True, "message": f"Lecture de « {title} » — {artist_name}", "data": None}
         return {"success": False, "message": "Impossible de lancer la lecture sur le lecteur.", "data": None}
 
     def _control_media(self, params: dict) -> dict:

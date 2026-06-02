@@ -7,7 +7,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QListWidgetItem, QSizePolicy
+    QFrame, QListWidgetItem, QSizePolicy, QApplication
 )
 from qfluentwidgets import (
     PushButton, PrimaryPushButton, LineEdit, ListWidget,
@@ -50,6 +50,7 @@ class MemoryTab(QWidget):
         super().__init__()
         self.setObjectName("MemoryTab")
         self._current_results: list = []
+        self._selected_id: int | None = None
         self._setup_ui()
         QTimer.singleShot(200, self._load_recent)
 
@@ -167,6 +168,11 @@ class MemoryTab(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+        self.copy_btn = PushButton(FIF.COPY, "Copier")
+        self.copy_btn.setEnabled(False)
+        self.copy_btn.clicked.connect(self._on_copy)
+        btn_row.addWidget(self.copy_btn)
+
         self.delete_btn = PushButton(FIF.DELETE, "Supprimer ce souvenir")
         self.delete_btn.setEnabled(False)
         self.delete_btn.clicked.connect(self._on_delete)
@@ -240,6 +246,7 @@ class MemoryTab(QWidget):
     def _run_search(self, query: str):
         self.memory_list.clear()
         self.result_count.setText("Recherche…")
+        self._clear_detail("Recherche en cours…")
         self._thread = _SearchThread(query)
         self._thread.results_ready.connect(self._on_results)
         self._thread.start()
@@ -263,6 +270,19 @@ class MemoryTab(QWidget):
         stats = memory_store.stats()
         self.stats_label.setText(self._stats_text(stats))
 
+        if results:
+            # Auto-select first result so detail pane is immediately useful.
+            self.memory_list.setCurrentRow(0)
+        else:
+            self._clear_detail("Aucun souvenir trouvé.")
+
+    def _clear_detail(self, meta_text: str = "Sélectionne un souvenir"):
+        self._selected_id = None
+        self.detail_meta.setText(meta_text)
+        self.detail_content.clear()
+        self.delete_btn.setEnabled(False)
+        self.copy_btn.setEnabled(False)
+
     def _on_select(self, item: QListWidgetItem | None):
         if not item:
             return
@@ -276,16 +296,32 @@ class MemoryTab(QWidget):
         self.detail_meta.setText(f"{role_label}  ·  {date}  ·  session {r['session_id'][:8]}…")
         self.detail_content.setPlainText(r["content"])
         self.delete_btn.setEnabled(True)
+        self.copy_btn.setEnabled(True)
         self._selected_id = mem_id
 
+    def _on_copy(self):
+        if self._selected_id is None:
+            return
+        text = self.detail_content.toPlainText().strip()
+        if not text:
+            return
+        QApplication.clipboard().setText(text)
+        InfoBar.success(
+            title="Souvenir copié",
+            content="Le contenu a été copié dans le presse-papiers.",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP_RIGHT,
+            duration=2000,
+            parent=self,
+        )
+
     def _on_delete(self):
-        if not hasattr(self, "_selected_id"):
+        if self._selected_id is None:
             return
         memory_store.delete(self._selected_id)
         self._run_search(self.search_input.text())
-        self.detail_content.clear()
-        self.detail_meta.setText("Souvenir supprimé.")
-        self.delete_btn.setEnabled(False)
+        self._clear_detail("Souvenir supprimé.")
         InfoBar.success(
             title="Souvenir supprimé",
             content="",

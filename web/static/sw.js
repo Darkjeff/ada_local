@@ -1,18 +1,15 @@
 /* ADA Mobile — Service Worker
    Cache the app shell for offline support */
 
-const CACHE = "ada-v8";
+const CACHE = "ada-v24";
+// Seuls les assets vraiment statiques sont mis en cache.
+// Les JS/CSS des views sont toujours rechargés depuis le réseau
+// pour éviter les problèmes de cache en développement.
 const SHELL = [
   "/",
   "/static/manifest.json",
   "/static/icon.svg",
-  "/static/core/core.js",
   "/static/core/base.css",
-  "/static/views/dashboard/index.js", "/static/views/dashboard/style.css",
-  "/static/views/chat/index.js",      "/static/views/chat/style.css",
-  "/static/views/memory/index.js",    "/static/views/memory/style.css",
-  "/static/views/page/index.js",      "/static/views/page/style.css",
-  "/static/views/webagent/index.js",  "/static/views/webagent/style.css",
 ];
 
 self.addEventListener("install", (e) => {
@@ -30,8 +27,12 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  // API calls — réseau uniquement, pas de cache
-  if (e.request.url.includes("/api/")) return;
+  // API calls et JS/CSS dynamiques — réseau uniquement, jamais de cache
+  if (
+    e.request.url.includes("/api/") ||
+    e.request.url.includes("/static/views/") ||
+    e.request.url.includes("/static/core/core.js")
+  ) return;
 
   e.respondWith(
     caches.match(e.request).then((cached) => {

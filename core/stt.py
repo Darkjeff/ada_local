@@ -1,15 +1,246 @@
 """
 Speech-to-Text with Wake Word Detection for Voice Assistant.
-Uses RealTimeSTT for real-time transcription with built-in wake word detection.
+
+RealtimeSTT tourne dans un sous-processus isolé pour éviter tout conflit
+entre PyAudio/PortAudio, les mp.Queue, et la boucle événementielle Qt.
+Le processus parent (Qt) communique avec le sous-processus via une Queue.
 """
 
+import queue
 import threading
+import multiprocessing
 import time
-from typing import Optional, Callable
+from typing import Callable
+
 from config import (
     WAKE_WORD, REALTIMESTT_MODEL, WAKE_WORD_SENSITIVITY,
+    USE_PORCUPINE_WAKE_WORD, PORCUPINE_ACCESS_KEY,
     GRAY, RESET, CYAN, YELLOW, GREEN
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fonction de travail du sous-processus
+# Doit être au niveau module (non imbriquée) pour être picklable avec "spawn".
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _stt_subprocess_worker(result_queue, shutdown_event,
+                            wake_word, model_name, device,
+                            use_porcupine, porcupine_key,
+                            wake_sensitivity):
+    """
+    Tourne dans un processus fils isolé.
+    Envoie des dicts {'type': ...} dans result_queue.
+    Types : 'ready', 'wake_word', 'speech', 'error'
+    """
+    import os
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+
+    recorder = None
+    try:
+        from RealtimeSTT import AudioToTextRecorder
+
+        recorder_kwargs = dict(
+            model=model_name,
+            language="en",
+            device=device,
+            spinner=False,
+        )
+
+        if use_porcupine and porcupine_key:
+            recorder_kwargs.update(dict(
+                wakeword_backend="pvporcupine",
+                wake_words=wake_word,
+                wake_words_sensitivity=wake_sensitivity,
+                porcupine_access_key=porcupine_key,
+            ))
+
+        recorder = AudioToTextRecorder(**recorder_kwargs)
+        result_queue.put({'type': 'ready'})
+
+        while not shutdown_event.is_set():
+            text = recorder.text()
+            if not (text and text.strip()):
+                continue
+
+            # Détection par transcription si Porcupine n'est pas activé
+            if not (use_porcupine and porcupine_key):
+                if wake_word.lower() not in text.lower():
+                    continue
+                result_queue.put({'type': 'wake_word'})
+
+            clean = (text
+                     .replace(wake_word, '')
+                     .replace(wake_word.capitalize(), '')
+                     .strip())
+            if clean:
+                result_queue.put({'type': 'speech', 'text': clean})
+
+    except Exception as exc:
+        result_queue.put({'type': 'error', 'message': str(exc)})
+    finally:
+        if recorder is not None:
+            try:
+                recorder.shutdown()
+            except Exception:
+                pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Classe principale — utilisée par le processus Qt
+# ─────────────────────────────────────────────────────────────────────────────
+
+class STTListener:
+    """
+    Lance RealtimeSTT dans un sous-processus spawn isolé.
+    Reçoit les résultats via un thread de polling léger.
+    """
+
+    def __init__(self, wake_word_callback: Callable, speech_callback: Callable):
+        self.wake_word_callback = wake_word_callback
+        self.speech_callback = speech_callback
+        self.running = False
+        self.initialized = False
+
+        self._process = None
+        self._result_queue = None
+        self._shutdown_event = None
+        self._poll_thread = None
+
+        print(f"{CYAN}[STT] STT initialisé (sous-processus isolé){RESET}")
+        print(f"{CYAN}[STT] Wake word : '{WAKE_WORD}'{RESET}")
+
+    def initialize(self) -> bool:
+        """Démarre le sous-processus STT et attend qu'il soit prêt."""
+        try:
+            import torch
+            cuda_available = torch.cuda.is_available()
+            device = "cuda" if cuda_available else "cpu"
+            mode = "Porcupine" if (USE_PORCUPINE_WAKE_WORD and PORCUPINE_ACCESS_KEY) else "transcription"
+            print(f"{CYAN}[STT] Démarrage sous-processus (device={device}, mode={mode})...{RESET}")
+
+            ctx = multiprocessing.get_context("spawn")
+            self._result_queue = ctx.Queue()
+            self._shutdown_event = ctx.Event()
+
+            self._process = ctx.Process(
+                target=_stt_subprocess_worker,
+                args=(
+                    self._result_queue,
+                    self._shutdown_event,
+                    WAKE_WORD,
+                    REALTIMESTT_MODEL,
+                    device,
+                    USE_PORCUPINE_WAKE_WORD,
+                    PORCUPINE_ACCESS_KEY,
+                    WAKE_WORD_SENSITIVITY,
+                ),
+                daemon=True,
+                name="STTWorker",
+            )
+            self._process.start()
+
+            print(f"{CYAN}[STT] Chargement du modèle Whisper (peut prendre quelques minutes au premier démarrage)...{RESET}")
+
+            # Attendre 'ready' — peut inclure le téléchargement du modèle
+            try:
+                msg = self._result_queue.get(timeout=300)
+            except queue.Empty:
+                print(f"{GRAY}[STT] ✗ Délai dépassé (5 min) en attendant le sous-processus STT{RESET}")
+                self._terminate_process()
+                return False
+
+            if msg.get('type') == 'error':
+                print(f"{GRAY}[STT] ✗ Erreur dans le sous-processus : {msg.get('message')}{RESET}")
+                self._terminate_process()
+                return False
+
+            if msg.get('type') != 'ready':
+                print(f"{GRAY}[STT] ✗ Message inattendu : {msg}{RESET}")
+                self._terminate_process()
+                return False
+
+            self.initialized = True
+            print(f"{GREEN}[STT] ✓ Sous-processus STT prêt (modèle : {REALTIMESTT_MODEL}){RESET}")
+            return True
+
+        except ImportError:
+            print(f"{GRAY}[STT] ✗ RealtimeSTT non installé. Installer avec : pip install realtimestt{RESET}")
+            return False
+        except Exception as e:
+            print(f"{GRAY}[STT] ✗ Échec du démarrage du sous-processus : {e}{RESET}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _on_wakeword_detected(self):
+        print(f"\n{CYAN}[STT] 👂 Wake word '{WAKE_WORD}' détecté ! Écoute...{RESET}")
+        if self.wake_word_callback:
+            self.wake_word_callback()
+
+    def start(self) -> bool:
+        """Démarre le thread de polling des résultats."""
+        if not self.initialized:
+            print(f"{YELLOW}[STT] Non initialisé. Appeler initialize() d'abord.{RESET}")
+            return False
+        if self.running:
+            return True
+
+        self.running = True
+        self._poll_thread = threading.Thread(
+            target=self._poll_results,
+            daemon=True,
+            name="STTPoll",
+        )
+        self._poll_thread.start()
+        print(f"{CYAN}[STT] ✓ Écoute démarrée{RESET}")
+        return True
+
+    def _poll_results(self):
+        """Lit la queue et dispatch les callbacks vers le processus Qt."""
+        while self.running:
+            try:
+                msg = self._result_queue.get(timeout=0.2)
+                mtype = msg.get('type')
+
+                if mtype == 'wake_word':
+                    self._on_wakeword_detected()
+                elif mtype == 'speech':
+                    text = msg.get('text', '').strip()
+                    if text:
+                        print(f"{CYAN}[STT] 🔊 Reconnu : '{text}'{RESET}")
+                        self.speech_callback(text)
+                elif mtype == 'error':
+                    print(f"{GRAY}[STT] ✗ Erreur sous-processus : {msg.get('message')}{RESET}")
+                    self.running = False
+
+            except queue.Empty:
+                # Vérifier si le sous-processus est mort de manière inattendue
+                if self._process and not self._process.is_alive():
+                    print(f"{GRAY}[STT] ✗ Le sous-processus STT s'est arrêté de façon inattendue{RESET}")
+                    self.running = False
+            except Exception as e:
+                print(f"{GRAY}[STT] Erreur de polling : {e}{RESET}")
+
+    def stop(self):
+        """Arrête proprement le polling et le sous-processus."""
+        self.running = False
+        self._terminate_process()
+        if self._poll_thread and self._poll_thread.is_alive():
+            self._poll_thread.join(timeout=2.0)
+        print(f"{CYAN}[STT] Arrêté{RESET}")
+
+    def _terminate_process(self):
+        if self._shutdown_event:
+            try:
+                self._shutdown_event.set()
+            except Exception:
+                pass
+        if self._process and self._process.is_alive():
+            self._process.terminate()
+            self._process.join(timeout=5.0)
+
 
 
 class STTListener:
@@ -60,20 +291,29 @@ class STTListener:
             else:
                 print(f"{YELLOW}[STT] ⚠ CUDA is not available, will use CPU{RESET}")
             
-            print(f"{CYAN}[STT] Initializing AudioToTextRecorder with device='cuda'...{RESET}")
-            
-            # Initialize RealTimeSTT with built-in wake word detection
-            # Using pvporcupine backend since "jarvis" is a predefined Porcupine wake word
-            self.recorder = AudioToTextRecorder(
-                model=REALTIMESTT_MODEL,  # Use configured model (base, small, etc.)
+            device = "cuda" if cuda_available else "cpu"
+            print(f"{CYAN}[STT] Initializing AudioToTextRecorder with device='{device}'...{RESET}")
+
+            recorder_kwargs = dict(
+                model=REALTIMESTT_MODEL,
                 language="en",
-                device="cuda",  # Use GPU for faster processing
-                spinner=False,  # Disable spinner for cleaner output
-                wakeword_backend="pvporcupine",  # Use Porcupine for wake word detection
-                wake_words=WAKE_WORD,  # Built-in wake word detection
-                wake_words_sensitivity=WAKE_WORD_SENSITIVITY,  # Sensitivity (0.0-1.0)
-                on_wakeword_detected=self._on_wakeword_detected,
+                device=device,
+                spinner=False,
             )
+
+            if USE_PORCUPINE_WAKE_WORD and PORCUPINE_ACCESS_KEY:
+                print(f"{CYAN}[STT] Wake word mode: Porcupine hardware detection{RESET}")
+                recorder_kwargs.update(dict(
+                    wakeword_backend="pvporcupine",
+                    wake_words=WAKE_WORD,
+                    wake_words_sensitivity=WAKE_WORD_SENSITIVITY,
+                    on_wakeword_detected=self._on_wakeword_detected,
+                    porcupine_access_key=PORCUPINE_ACCESS_KEY,
+                ))
+            else:
+                print(f"{CYAN}[STT] Wake word mode: transcription-based detection{RESET}")
+
+            self.recorder = AudioToTextRecorder(**recorder_kwargs)
             
             # Verify device after initialization
             if hasattr(self.recorder, 'model') and hasattr(self.recorder.model, 'device'):
@@ -137,16 +377,23 @@ class STTListener:
                     break
                 
                 print(f"{GRAY}[STT] ⏳ Waiting for wake word '{WAKE_WORD}'...{RESET}")
-                
-                # recorder.text() blocks until wake word is detected, then returns transcribed text
+
+                # recorder.text() blocks until speech is detected
                 transcription_start = time.time()
                 text = self.recorder.text()
                 transcription_time = time.time() - transcription_start
-                
+
                 print(f"{CYAN}[STT] ✓ Transcription completed in {transcription_time:.2f}s{RESET}")
                 print(f"{CYAN}[STT] 📝 Raw transcribed text: '{text}'{RESET}")
-                
+
                 if text and text.strip():
+                    # In transcription-based mode, check that the text contains the wake word
+                    if not (USE_PORCUPINE_WAKE_WORD and PORCUPINE_ACCESS_KEY):
+                        if WAKE_WORD.lower() not in text.lower():
+                            print(f"{GRAY}[STT] ⚠ Wake word not found, ignoring: '{text}'{RESET}")
+                            continue
+                        self._on_wakeword_detected()
+
                     # Remove wake word from the text if present
                     text_clean = text.replace(WAKE_WORD, "").replace(WAKE_WORD.capitalize(), "").strip()
                     

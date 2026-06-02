@@ -1,0 +1,244 @@
+/* ================================================================
+   Profile Editor View — ADA
+   3 onglets : Univers / Profils / Appareils
+   Classes préfixées pe- pour isolation
+   ================================================================ */
+
+.pe-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Tabbar (réutilise les variables du settings tab) ──────────── */
+.pe-tabbar {
+  display: flex;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  flex-shrink: 0;
+  padding: 0 16px;
+}
+.pe-tab {
+  padding: 11px 16px;
+  font-size: 12px; font-weight: 700;
+  color: rgba(255,255,255,.4);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  letter-spacing: .05em;
+  transition: all .15s;
+  background: none; border-top: none; border-left: none; border-right: none;
+}
+.pe-tab:hover { color: rgba(255,255,255,.7); }
+.pe-tab.active { color: var(--accent, #00c8f0); border-bottom-color: var(--accent, #00c8f0); }
+
+/* ── Panel scrollable ──────────────────────────────────────────── */
+.pe-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 24px;
+}
+
+/* ── Section header ────────────────────────────────────────────── */
+.pe-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0 10px;
+  position: sticky;
+  top: 0;
+  background: var(--surface, #0c1018);
+  z-index: 10;
+}
+.pe-section-title {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .12em;
+  opacity: .5;
+}
+
+.pe-add-btn {
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: transparent;
+  color: var(--accent, #00c8f0);
+  font-size: 12px; font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+.pe-add-btn:hover { background: rgba(255,255,255,.06); }
+
+/* ── List rows ─────────────────────────────────────────────────── */
+.pe-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 4px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  transition: background .1s;
+}
+.pe-row:hover { background: rgba(255,255,255,.02); }
+.pe-row-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.pe-row-icon { font-size: 16px; flex-shrink: 0; width: 24px; text-align: center; }
+.pe-row-body { flex: 1; min-width: 0; }
+.pe-row-name { font-size: 13px; font-weight: 700; display: block; }
+.pe-row-meta {
+  font-size: 10px; opacity: .45;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block;
+}
+.pe-icon-btn {
+  padding: 4px 8px; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: transparent; color: rgba(255,255,255,.45);
+  cursor: pointer; font-size: 13px; flex-shrink: 0;
+  transition: all .12s;
+}
+.pe-icon-btn:hover { color: var(--text, #fff); border-color: rgba(255,255,255,.25); }
+.pe-icon-btn.danger:hover { color: var(--red, #ff3659); border-color: var(--red, #ff3659); }
+.pe-icon-btn:disabled { opacity: .25; cursor: not-allowed; pointer-events: none; }
+
+/* Slot d'édition inline (s'insère sous la row) */
+.pe-editor-slot { overflow: hidden; }
+
+/* ── Inline editor ─────────────────────────────────────────────── */
+.pe-editor {
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 4px 0 12px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.pe-editor-row label {
+  display: block; font-size: 10px; font-weight: 700;
+  opacity: .5; text-transform: uppercase; letter-spacing: .08em;
+  margin-bottom: 5px;
+}
+.pe-editor-row input[type="text"],
+.pe-editor-row select {
+  width: 100%;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 7px;
+  color: var(--text, #dde4ec);
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+  font-family: inherit;
+  transition: border-color .15s;
+}
+.pe-editor-row input:focus,
+.pe-editor-row select:focus { border-color: var(--accent, #00c8f0); }
+
+.pe-editor-row-inline { display: flex; gap: 16px; }
+.pe-editor-row-inline > div { flex: 1; min-width: 0; }
+
+.pe-color-row { display: flex; align-items: center; gap: 8px; }
+.pe-color-row input[type="color"] {
+  width: 32px; height: 32px; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.15);
+  padding: 2px; cursor: pointer; background: transparent;
+  flex-shrink: 0;
+}
+.pe-color-row input[type="text"] { flex: 1; }
+
+/* ── Dual list ─────────────────────────────────────────────────── */
+.pe-dual-list {
+  display: flex; gap: 10px; align-items: flex-start;
+}
+.pe-list-col { flex: 1; min-width: 0; }
+.pe-list-title {
+  font-size: 10px; font-weight: 700; opacity: .45;
+  text-transform: uppercase; letter-spacing: .08em;
+  margin-bottom: 6px;
+}
+.pe-list-title small { font-size: 9px; opacity: .7; text-transform: none; }
+.pe-list-items {
+  min-height: 80px; max-height: 200px; overflow-y: auto;
+  border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
+  padding: 4px;
+  scrollbar-width: thin;
+}
+.pe-list-items.droppable { border-color: rgba(255,255,255,.18); }
+
+.pe-list-arrows {
+  display: flex; flex-direction: column; gap: 6px;
+  justify-content: center; padding-top: 24px; flex-shrink: 0;
+}
+.pe-list-arrows button {
+  padding: 3px 7px; border-radius: 5px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: transparent; color: rgba(255,255,255,.45);
+  cursor: pointer; font-size: 13px;
+  transition: all .12s;
+}
+.pe-list-arrows button:hover { color: var(--text, #fff); border-color: rgba(255,255,255,.3); }
+
+/* ── Module / Universe items ───────────────────────────────────── */
+.pe-cat-label {
+  font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em; opacity: .35; padding: 5px 6px 2px;
+}
+.pe-module-item,
+.pe-universe-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px; border-radius: 6px;
+  font-size: 12px; cursor: pointer;
+  transition: background .12s;
+  user-select: none;
+}
+.pe-module-item:hover,
+.pe-universe-item:hover { background: rgba(255,255,255,.07); }
+.pe-module-item.dragging,
+.pe-universe-item.dragging { opacity: .4; background: rgba(255,255,255,.04); }
+.pe-drag-handle { opacity: .3; font-size: 14px; cursor: grab; flex-shrink: 0; }
+.pe-uni-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pe-module-label { flex: 1; }
+
+/* ── Editor actions ────────────────────────────────────────────── */
+.pe-editor-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding-top: 6px; border-top: 1px solid rgba(255,255,255,.06);
+}
+.pe-btn-primary,
+.pe-btn-secondary {
+  padding: 7px 16px; border-radius: 8px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all .15s; font-family: inherit;
+}
+.pe-btn-primary {
+  background: var(--accent, #00c8f0); color: #000; border: none;
+}
+.pe-btn-primary:hover { filter: brightness(1.1); }
+.pe-btn-secondary {
+  background: transparent; border: 1px solid rgba(255,255,255,.15);
+  color: rgba(255,255,255,.55);
+}
+.pe-btn-secondary:hover { border-color: rgba(255,255,255,.3); color: var(--text, #fff); }
+
+/* ── Profile select (devices tab) ──────────────────────────────── */
+.pe-profile-select {
+  padding: 5px 8px; border-radius: 7px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05); color: var(--text, #dde4ec);
+  font-size: 11px; cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+/* ── Preview ───────────────────────────────────────────────────── */
+.pe-preview { margin-top: 2px; }
+.pe-preview-shell {
+  border-radius: 8px; overflow: hidden;
+  display: flex; height: 64px;
+  border: 1px solid rgba(255,255,255,.1);
+}
+
+/* ── Empty state ───────────────────────────────────────────────── */
+.pe-empty {
+  color: rgba(255,255,255,.3); font-size: 12px;
+  padding: 20px 0; text-align: center; font-style: italic;
+}

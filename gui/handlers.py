@@ -338,6 +338,11 @@ class ChatWorker(QObject):
         ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
         model = app_settings.get("models.chat", RESPONDER_MODEL)
 
+        # Fonctions dynamiques : FUNCTIONS natives + fonctions des plugins actifs
+        from core.plugin_registry import plugin_registry as _pr
+        plugin_functions = _pr.combined_function_definitions()
+        effective_functions = FUNCTIONS + plugin_functions
+
         try:
             ensure_qwen_loaded()
             mark_qwen_used()
@@ -359,17 +364,12 @@ class ChatWorker(QObject):
                                 "action='dim' for dim/baisse/réduis. "
                                 "Set device_name to the room or device mentioned (e.g. 'bureau', 'salon', 'chambre'), "
                                 "or 'all' if no specific device is mentioned.\n"
-                                "- play_music: for ANY music request "
-                                "(lance du jazz, joue du rock, mets de la musique, play some jazz). "
-                                "Extract genre (jazz/rock/soul/...) and room (salon/cuisine/...) if mentioned.\n"
                                 "- set_timer: for countdown timers (minuterie, timer, dans X minutes).\n"
                                 "- shell_exec: for system commands — disk space (df -h), RAM (free -h), "
                                 "CPU (top -bn1), processes (ps aux), network (ip addr), etc.\n"
                                 "- web_search: for internet searches.\n"
                                 "- passthrough: ONLY for greetings, chitchat, or questions needing no action.\n\n"
                                 "Examples:\n"
-                                "- 'lance du jazz dans le salon' → play_music(genre='jazz', room='salon')\n"
-                                "- 'joue du rock' → play_music(genre='rock')\n"
                                 "- 'éteins la lumière' → control_light(action='off', device_name='all')\n"
                                 "- 'désactive l\\'éclairage du bureau' → control_light(action='off', device_name='bureau')\n"
                                 "- 'allume les lumières du salon' → control_light(action='on', device_name='salon')\n"
@@ -381,7 +381,7 @@ class ChatWorker(QObject):
                         },
                         {"role": "user", "content": self.user_text},
                     ],
-                    "tools": FUNCTIONS,
+                    "tools": effective_functions,
                     "stream": False,
                     "think": False,
                 },
@@ -409,13 +409,29 @@ class ChatWorker(QObject):
 
         self.status.emit(f"Executing {func_name}...")
 
+        # Vérification confirmation requise (actions sensibles déclarées dans effective_functions)
+        func_def = next((f for f in effective_functions if f["function"]["name"] == func_name), None)
+        if func_def and func_def["function"].get("x_confirm_required"):
+            confirm_msg = func_def["function"].get("x_confirm_message", f"Confirmer {func_name} ?")
+            # Émettre signal confirm si disponible, sinon bloquer silencieusement
+            if hasattr(self, "confirm_required"):
+                self.confirm_required.emit(func_name, params, confirm_msg)
+            else:
+                self._stream_qwen_response(False)
+            return
+
         # Convert LLM func_name (underscores) to n8n action (hyphens)
         action = func_name.replace("_", "-")
 
         if func_name == "web_search":
             self.search_start.emit(params.get("query", ""))
 
-        result = n8n_executor.call(action, params)
+        # Tenter dispatch plugin avant FunctionExecutor / n8n_executor
+        plugin_result = _pr.dispatch_action(func_name, params)
+        if plugin_result is not None:
+            result = plugin_result
+        else:
+            result = n8n_executor.call(action, params)
 
         if func_name == "web_search":
             self.search_end.emit()
@@ -691,7 +707,9 @@ class ChatHandlers(QObject):
         self.ui_throttle_timer.setInterval(100) # 10 tokens per second or so
         self.ui_throttle_timer.timeout.connect(self._flush_ui_buffers)
         self.last_scroll_time = 0
-    
+        # MODULE_SOCIETE: contexte société injecté dans le system prompt
+        self._societe_context: str = ""
+
     def refresh_sidebar(self):
         """Reload the persistent sidebar with conversation history."""
         self.main_window.refresh_sidebar(self.current_session_id)
@@ -858,7 +876,52 @@ class ChatHandlers(QObject):
     def _on_status(self, text):
         self.main_window.set_status(text)
 
-    def _on_done(self):
+    # MODULE_SOCIETE: injection contexte société dans le system prompt
+    def set_societe_context(self, company_id: str) -> None:
+        """
+        # MODULE_SOCIETE: met à jour le contexte société injecté dans les messages.
+        Appelé quand l'utilisateur sélectionne une société dans ChatContextBar.
+        company_id == "" → réinitialise le contexte société.
+        """
+        from config import MODULES_ENABLED
+        if not MODULES_ENABLED.get("societe", False):
+            return
+
+        self._societe_context = ""
+        if company_id:
+            try:
+                from core.plugin_registry import plugin_registry
+                plugin = plugin_registry.get("societe")
+                if plugin:
+                    self._societe_context = plugin.get_chat_context(company_id)
+                    print(f"[Handlers] MODULE_SOCIETE: contexte injecté pour '{company_id}'")
+            except Exception as exc:
+                print(f"[Handlers] MODULE_SOCIETE: erreur contexte: {exc}")
+
+        # Reconstruire le system prompt avec le nouveau contexte
+        base_system = self.messages[0]["content"] if self.messages else ""
+        # Retirer l'ancien bloc société s'il existe
+        if "\n\n### Contexte société ###" in base_system:
+            base_system = base_system.split("\n\n### Contexte société ###")[0]
+
+        if self._societe_context:
+            new_system = base_system + f"\n\n### Contexte société ###\n{self._societe_context}"
+        else:
+            new_system = base_system
+
+        # Injection des capacités plugins actifs
+        from core.plugin_registry import plugin_registry as _pr_handler
+        plugin_context = _pr_handler.combined_system_prompt_injection(
+            context_id=company_id or None
+        )
+        if plugin_context:
+            new_system += f"\n\n### Capacités disponibles ###\n{plugin_context}"
+
+        if self.messages:
+            self.messages[0]["content"] = new_system
+        print(f"[Handlers] MODULE_SOCIETE: system prompt mis à jour (societe={'oui' if company_id else 'non'})")
+
+
         self.ui_throttle_timer.stop()
         self._flush_ui_buffers() # Final final flush
         self._end_generation_state()

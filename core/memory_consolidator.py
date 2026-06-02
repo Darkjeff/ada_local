@@ -21,11 +21,14 @@ import requests
 
 from config import OLLAMA_URL, RESPONDER_MODEL
 from core.memory_store import memory_store
+from core.settings_store import settings
 
 _CONSOLIDATION_HOUR = 3   # 3:00 AM local time
 
-_SYSTEM_PROMPT = """\
-Tu es un système de consolidation mémorielle. Tu reçois des échanges bruts d'une journée de conversations entre Jeff et son assistant ADA.
+def _system_prompt() -> str:
+    name = settings.get("user.name", "l'utilisateur")
+    return f"""\
+Tu es un système de consolidation mémorielle. Tu reçois des échanges bruts d'une journée de conversations entre {name} et son assistant ADA.
 
 Ton travail :
 1. RÉSUMER les sujets importants en 2-4 phrases concises
@@ -33,11 +36,11 @@ Ton travail :
 3. IGNORER le bruit : salutations, questions banales, échanges sans valeur informationnelle, reformulations
 
 Réponds UNIQUEMENT en JSON valide, sans markdown, sans explication :
-{
+{{
   "résumé": "...",
   "faits": ["fait 1", "fait 2", ...],
   "sujets": ["sujet 1", "sujet 2"]
-}"""
+}}"""
 
 
 def consolidate_date(date_str: str, force: bool = False) -> Optional[dict]:
@@ -60,7 +63,7 @@ def consolidate_date(date_str: str, force: bool = False) -> Optional[dict]:
     # Build conversation transcript (user messages only for brevity)
     lines = []
     for r in raw:
-        role = "Jeff" if r["role"] == "user" else "ADA"
+        role = settings.get("user.name", "User") if r["role"] == "user" else "ADA"
         snippet = r["content"][:300].replace("\n", " ")
         lines.append(f"[{role}] {snippet}")
 
@@ -70,7 +73,7 @@ def consolidate_date(date_str: str, force: bool = False) -> Optional[dict]:
     payload = {
         "model": RESPONDER_MODEL,
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": f"Date : {date_str}\n\nConversations :\n{transcript}"},
         ],
         "stream": False,

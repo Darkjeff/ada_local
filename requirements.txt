@@ -68,9 +68,6 @@ duckduckgo-search>=8.0.0       # DuckDuckGo search API (provides DDGS class)
 feedparser>=6.0.0              # RSS/Atom feed parsing for news fetching
 youtube-transcript-api>=0.6.0  # Fetch YouTube subtitles without audio download
 httpx>=0.28.0                  # Async HTTP client
-uvicorn>=0.31.0                # ASGI server for web plugin
-fastapi>=0.115.0               # Web framework for web plugin
-cryptography>=45.0.0           # SSL certificate generation
 
 # -----------------------------------------------------
 # System Utilities

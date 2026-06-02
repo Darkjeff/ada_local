@@ -14,6 +14,8 @@ from pathlib import Path
 # Assurer que la racine du projet est dans sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from typing import Any, Optional
+
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,23 +29,181 @@ _REOLINK_SSL.set_ciphers("DEFAULT:@SECLEVEL=0")
 _REOLINK_SSL.check_hostname = False
 _REOLINK_SSL.verify_mode = _ssl.CERT_NONE
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse as _JSONResponse
+from starlette.types import ASGIApp as _ASGIApp
+
 from core.memory_store import memory_store
 from core.runtime_state import runtime_state
 from core.skill_manager import skill_manager
 from core.settings_store import settings
 from web.pipeline import process_message
+# MODULE_SKILLS: module de mémoire procédurale SQLite FTS5
+from core.skills import (
+    init_db as _skills_init_db,
+    seed_from_files as _skills_seed,
+    run_maintenance as _skills_maintenance,
+    list_skills as _skills_list,
+    get_skill as _skills_get,
+    save_skill as _skills_save,
+    delete_skill as _skills_delete,
+    archive_skill as _skills_archive,
+    restore_skill as _skills_restore,
+    promote_skill as _skills_promote,
+)
+from web.router_auth import router as _auth_router
+from web.router_profiles import router as _profiles_router
+from core.routes.profiles import initialize as _profiles_init
+
+# ---------------------------------------------------------------------------
+# Routes toujours publiques (même quand l'auth est activée)
+# ---------------------------------------------------------------------------
+_PUBLIC_PREFIXES = (
+    "/api/auth/",
+    "/static/",
+    "/api/webhook/",   # webhooks entrants — auth propre par token secret
+)
+_PUBLIC_EXACT = {
+    "/",
+    "/manifest.json",
+    "/sw.js",
+    "/api/status",   # status dot visible avant auth
+}
+
+
+class _AuthMiddleware(BaseHTTPMiddleware):
+    """Middleware JWT — actif uniquement quand auth.enabled=True."""
+
+    async def dispatch(self, request: Request, call_next):
+        if not settings.get("auth.enabled", False):
+            return await call_next(request)
+
+        path = request.url.path
+        if path in _PUBLIC_EXACT:
+            return await call_next(request)
+        for prefix in _PUBLIC_PREFIXES:
+            if path.startswith(prefix):
+                return await call_next(request)
+
+        # Vérification du JWT
+        from web.auth import extract_token, verify_jwt
+        token = extract_token(request)
+        if token and verify_jwt(token):
+            return await call_next(request)
+
+        if path.startswith("/api/"):
+            return _JSONResponse({"detail": "Non authentifié"}, status_code=401)
+        # Page HTML → retourner quand même (le frontend affiche la vue auth)
+        return await call_next(request)
+
 
 # ---------------------------------------------------------------------------
 app = FastAPI(title="ADA Mobile", docs_url=None, redoc_url=None)
+app.add_middleware(_AuthMiddleware)
+app.include_router(_auth_router)
+app.include_router(_profiles_router)
+
+# MODULE_SOCIETE: guard — router branché uniquement si module actif
+from config import MODULES_ENABLED as _MODULES_ENABLED
+if _MODULES_ENABLED.get("societe", False):
+    from web.router_societe import router as _societe_router
+    app.include_router(_societe_router)
+
+# router_plugins : toujours actif — retourne liste vide si aucun plugin enregistré
+from web.router_plugins import router as _plugins_router
+app.include_router(_plugins_router)
+
+# Webhooks entrants — Domoticz, n8n, Home Assistant, etc.
+from web.router_webhook import router as _webhook_router
+app.include_router(_webhook_router)
+
+# routes_infra : Proxmox/PBS multi-instance — toujours monté, guard interne
+from web.routes_infra import router as _infra_router
+app.include_router(_infra_router)
+
+# MODULE_DOCUMENTS: base documentaire RAG locale — toujours monté, guard interne
+from web.router_documents import router as _documents_router
+app.include_router(_documents_router)
 
 _STATIC = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
+
+class _NoCacheStaticFiles(StaticFiles):
+    """StaticFiles avec Cache-Control: no-cache pour forcer la revalidation ETag."""
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        from starlette.staticfiles import NotModifiedResponse
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if not isinstance(response, NotModifiedResponse):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
+app.mount("/static", _NoCacheStaticFiles(directory=str(_STATIC)), name="static")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 @app.on_event("startup")
 async def _startup() -> None:
     # Ensure semantic memory DB is available for web chat sessions.
     memory_store.initialize()
+    # Initialise la DB auth si l'auth est activée.
+    if settings.get("auth.enabled", False):
+        from web.auth_db import initialize as _auth_db_init
+        _auth_db_init()
+    # Initialise les profils d'affichage (tables + seed)
+    _profiles_init()
+    # MODULE_SOCIETE: enregistrement des plugins au démarrage web (tous modules)
+    from core.plugin_registry import register_enabled_plugins, plugin_registry as _plugin_registry
+    register_enabled_plugins()
+    # Enrichir le semantic_router avec les utterances des plugins
+    try:
+        from core.semantic_router import inject_plugin_utterances as _inject_utt
+        _inject_utt(_plugin_registry.combined_semantic_utterances())
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning("[Server] inject_plugin_utterances: %s", _e)
+    # Enregistrer les webhooks n8n des plugins
+    try:
+        from core.n8n_executor import n8n_executor as _n8n
+        _n8n.register_plugin_webhooks(_plugin_registry.combined_n8n_webhooks())
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning("[Server] register_plugin_webhooks: %s", _e)
+    # MODULE_SKILLS: initialisation DB skills FTS5 + seed + maintenance
+    try:
+        _skills_init_db()
+        _skills_seed()
+        _skills_maintenance()
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning("[Skills] Erreur init : %s", _e)
+    # MODULE_DOCUMENTS: initialisation DB documentaire + indexation si activé
+    try:
+        from core.documents.documents_db import init_db as _docs_init_db
+        _docs_init_db()
+        from core.settings_store import settings as _settings_ref
+        if _settings_ref.get("documents.enabled", False) and _settings_ref.get("documents.auto_index_on_startup", True):
+            from core.documents.documents_indexer import index_all as _docs_index
+            _docs_index(force=False)
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning("[Documents] Erreur init : %s", _e)
+    # Ping périodique des services infra (built-in + custom endpoints) toutes les 90s
+    import asyncio as _aio
+    async def _infra_poller():
+        from core.runtime_state import runtime_state as _rs
+        import concurrent.futures as _cf
+        _pool = _cf.ThreadPoolExecutor(max_workers=1, thread_name_prefix="infra-poll")
+        while True:
+            try:
+                loop = _aio.get_event_loop()
+                await loop.run_in_executor(_pool, _rs.refresh)
+            except Exception:
+                pass
+            await _aio.sleep(90)
+    _aio.create_task(_infra_poller())
 
 
 # ---------------------------------------------------------------------------
@@ -74,8 +234,11 @@ async def index():
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
-    message: str
-    history: list[dict] = []
+    message:         str
+    history:         list[dict] = []
+    company_context: str | None = None   # compat existant
+    plugin_context:  str | None = None   # NOUVEAU : univers actif
+    context_id:      str | None = None   # NOUVEAU : sous-contexte
 
 
 @app.post("/api/chat")
@@ -87,10 +250,22 @@ async def chat(req: ChatRequest):
     """
     async def _sse():
         try:
-            async for chunk in process_message(req.message, req.history):
+            async for chunk in process_message(
+                req.message,
+                req.history,
+                company_context=req.company_context,
+                plugin_context=req.plugin_context,
+                context_id=req.context_id,
+            ):
                 if chunk.startswith('\x00img\x00'):
                     img_url = chunk[5:]  # retire le préfixe \x00img\x00 (5 chars)
                     yield f"data: {json.dumps({'img_url': img_url})}\n\n"
+                elif chunk.startswith('\x00think\x00'):
+                    think_text = chunk[7:]  # \x00think\x00 = 7 chars
+                    yield f"data: {json.dumps({'thinking': think_text})}\n\n"
+                elif chunk.startswith('{"__type"'):
+                    # Carte de confirmation — envoyer directement sans double-wrapping
+                    yield f"data: {chunk}\n\n"
                 else:
                     yield f"data: {json.dumps({'text': chunk})}\n\n"
         except Exception as exc:
@@ -103,6 +278,32 @@ async def chat(req: ChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class ConfirmRequest(BaseModel):
+    func:   str
+    params: dict = {}
+
+
+@app.post("/api/plugins/confirm")
+async def plugins_confirm(req: ConfirmRequest, request: Request):
+    """Exécute une action Proxmox après confirmation de l'utilisateur."""
+    from core.plugin_registry import plugin_registry as _pr
+    from core.async_runner import run_async
+    # Sécurité : seules les fonctions à confirmation sont exécutables ici
+    _ALLOWED = {
+        "vm_backup", "vm_power", "vm_snapshot", "vm_restore",
+        "node_reboot", "pbs_backup_run", "pbs_restore",
+    }
+    if req.func not in _ALLOWED:
+        return {"success": False, "message": f"Action '{req.func}' non autorisée via cet endpoint."}
+    try:
+        result = _pr.dispatch_action(req.func, req.params)
+        if result is None:
+            return {"success": False, "message": "Plugin introuvable pour cette action."}
+        return result
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 
 @app.get("/api/status")
@@ -186,6 +387,218 @@ async def dashboard():
     }
 
 
+def _wmo_desc(code: int) -> str:
+    """Convertit un code WMO en description météo française."""
+    if code == 0:   return "Ciel dégagé"
+    if code <= 2:   return "Partiellement nuageux"
+    if code <= 3:   return "Nuageux"
+    if code <= 48:  return "Brouillard"
+    if code <= 55:  return "Bruine"
+    if code <= 67:  return "Pluie"
+    if code <= 77:  return "Neige"
+    if code <= 82:  return "Averses"
+    return "Orage"
+
+
+@app.get("/api/dashboard/home")
+async def dashboard_home():
+    """Données enrichies pour la vue accueil : météo, tâches, appareils, news."""
+    import asyncio
+
+    user_name = settings.get("user.name", "User")
+    lat = settings.get("weather.latitude", 48.8566)
+    lon = settings.get("weather.longitude", 2.3522)
+    city = settings.get("weather.city", "Paris")
+
+    # --- Météo OpenMeteo (gratuit, sans clé) ---
+    weather_data: dict = {"temp": None, "unit": "°C", "desc": "—", "code": 0, "city": city}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                f"&current=temperature_2m,weathercode"
+            )
+            if r.status_code == 200:
+                cur = r.json().get("current", {})
+                code = int(cur.get("weathercode", 0))
+                temp = cur.get("temperature_2m")
+                weather_data.update({
+                    "temp": round(temp) if temp is not None else None,
+                    "code": code,
+                    "desc": _wmo_desc(code),
+                })
+    except Exception:
+        pass
+
+    # --- Tâches ---
+    tasks_data: dict = {"pending": 0, "next": None}
+    try:
+        from core.tasks import TaskManager
+        tm = TaskManager()
+        all_tasks = tm.get_tasks()
+        pending = [t for t in all_tasks if not t.get("completed")]
+        tasks_data = {"pending": len(pending), "next": pending[0]["text"] if pending else None}
+    except Exception:
+        pass
+
+    # --- Derniers capteurs Domoticz modifiés ---
+    active_devices = 0
+    kasa_status = "Domoticz non configuré"
+    recent_devices: list = []
+    try:
+        domo_url = settings.get("domoticz.url", "").rstrip("/")
+        domo_user = settings.get("domoticz.username", "")
+        domo_pass = settings.get("domoticz.password", "")
+        if domo_url:
+            auth = (domo_user, domo_pass) if domo_user else None
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                r = await client.get(
+                    f"{domo_url}/json.htm",
+                    params={"type": "devices", "filter": "all", "used": "true", "order": "LastUpdate"},
+                    auth=auth,
+                )
+                if r.status_code == 200:
+                    devs = r.json().get("result", [])
+                    active_devices = len(devs)
+                    kasa_status = f"{active_devices} appareil(s) Domoticz"
+                    recent_devices = [
+                        {
+                            "name": d.get("Name", "?"),
+                            "value": d.get("Data", d.get("Status", "?")),
+                            "last_update": d.get("LastUpdate", "")[:16],
+                        }
+                        for d in devs[:4]
+                    ]
+    except Exception:
+        pass
+
+    # --- Dernière news (titre seulement, depuis cache ou RSS rapide) ---
+    latest_news: dict | None = None
+    news_count = 0
+    try:
+        import feedparser
+        feed = feedparser.parse("https://www.lemonde.fr/rss/une.xml")
+        entries = feed.entries
+        news_count = len(entries)
+        if entries:
+            latest_news = {
+                "title": entries[0].get("title", ""),
+                "source": feed.feed.get("title", "Le Monde"),
+            }
+    except Exception:
+        pass
+
+    return {
+        "user_name": user_name,
+        "weather": weather_data,
+        "tasks": tasks_data,
+        "active_devices": active_devices,
+        "kasa_status": kasa_status,
+        "news_count": news_count,
+        "latest_news": latest_news,
+        "recent_devices": recent_devices,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Planificateur — Tâches, Alarmes, Timers
+# ---------------------------------------------------------------------------
+from core.tasks import task_manager as _tm
+
+class _TaskBody(BaseModel):
+    text: str
+
+class _TaskToggle(BaseModel):
+    completed: bool
+
+class _AlarmBody(BaseModel):
+    time: str
+    label: str = ""
+
+class _TimerBody(BaseModel):
+    label: str
+    duration: str  # ex: "10 minutes", "1 hour 30 minutes"
+
+@app.get("/api/tasks")
+async def tasks_list():
+    return _tm.get_tasks()
+
+@app.post("/api/tasks")
+async def tasks_add(body: _TaskBody):
+    t = _tm.add_task(body.text)
+    if t:
+        return t
+    from fastapi import HTTPException
+    raise HTTPException(500, "Erreur création tâche")
+
+@app.patch("/api/tasks/{task_id}")
+async def tasks_toggle(task_id: str, body: _TaskToggle):
+    _tm.toggle_task(task_id, body.completed)
+    return {"ok": True}
+
+@app.delete("/api/tasks/{task_id}")
+async def tasks_delete(task_id: str):
+    _tm.delete_task(task_id)
+    return {"ok": True}
+
+@app.get("/api/planner/alarms")
+async def alarms_list():
+    return _tm.get_alarms()
+
+@app.post("/api/planner/alarms")
+async def alarms_add(body: _AlarmBody):
+    alarm_id = _tm.add_alarm(body.time, body.label)
+    if alarm_id:
+        return {"id": alarm_id, "time": body.time, "label": body.label}
+    from fastapi import HTTPException
+    raise HTTPException(500, "Erreur création alarme")
+
+@app.delete("/api/planner/alarms/{alarm_id}")
+async def alarms_delete(alarm_id: str):
+    _tm.delete_alarm(alarm_id)
+    return {"ok": True}
+
+@app.get("/api/planner/timers")
+async def timers_list():
+    try:
+        from core.function_executor import executor as _exec
+        result = []
+        with _exec._timer_lock:
+            for label, t in list(_exec.active_timers.items()):
+                result.append({
+                    "label": label,
+                    "duration_seconds": t.duration_seconds,
+                    "remaining_seconds": t.remaining_seconds,
+                    "is_expired": t.is_expired,
+                    "start_time": t.start_time,
+                })
+        return result
+    except Exception:
+        return []
+
+@app.post("/api/planner/timers")
+async def timers_add(body: _TimerBody):
+    from fastapi import HTTPException
+    try:
+        from core.function_executor import executor as _exec
+        result = _exec.execute("set_timer", {"duration": body.duration, "label": body.label})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Durée invalide"))
+    return {"ok": True, "message": result["message"]}
+
+@app.delete("/api/planner/timers/{label}")
+async def timers_delete(label: str):
+    try:
+        from core.function_executor import executor as _exec
+        with _exec._timer_lock:
+            _exec.active_timers.pop(label, None)
+        return {"ok": True}
+    except Exception:
+        return {"ok": True}
+
 # ---------------------------------------------------------------------------
 # Mémoire sémantique
 # ---------------------------------------------------------------------------
@@ -204,6 +617,92 @@ async def memory_recent(limit: int = 50):
     return items
 
 
+# ---------------------------------------------------------------------------
+# Briefing — sources RSS configurables + mots-clés
+# ---------------------------------------------------------------------------
+_BRIEFING_DEFAULT_SOURCES = [
+    {"url": "https://news.google.com/rss?hl=fr&gl=FR&ceid=FR:fr",                          "name": "Top Stories",  "category": "Top Stories"},
+    {"url": "https://news.google.com/rss/search?q=technology&hl=fr&gl=FR&ceid=FR:fr",      "name": "Technology",   "category": "Technology"},
+    {"url": "https://news.google.com/rss/search?q=science&hl=fr&gl=FR&ceid=FR:fr",         "name": "Science",      "category": "Science"},
+    {"url": "https://news.google.com/rss/search?q=marchés+bourse&hl=fr&gl=FR&ceid=FR:fr",  "name": "Markets",      "category": "Markets"},
+    {"url": "https://news.google.com/rss/search?q=culture+cinéma&hl=fr&gl=FR&ceid=FR:fr",  "name": "Culture",      "category": "Culture"},
+]
+_briefing_cache: dict = {}   # {cache_key: {"ts": float, "data": list}}
+_BRIEFING_TTL = 900          # 15 min
+
+def _briefing_fetch(sources: list, keywords: list[str]) -> list:
+    """Lit les flux RSS et filtre par mots-clés (léger, sans IA)."""
+    import time, feedparser as _fp
+    articles = []
+    seen: set = set()
+    kw_low = [k.lower() for k in keywords if k.strip()]
+    for src in sources:
+        try:
+            feed = _fp.parse(src["url"])
+            for entry in feed.entries[:10]:
+                title = entry.get("title", "").strip()
+                if not title or title in seen:
+                    continue
+                summary = entry.get("summary", "")
+                # Filtre mots-clés
+                if kw_low:
+                    haystack = (title + " " + summary).lower()
+                    if not any(k in haystack for k in kw_low):
+                        continue
+                seen.add(title)
+                # Nom de source précis (Google News encapsule la source réelle)
+                src_name = src["name"]
+                if hasattr(entry, "source") and hasattr(entry.source, "title"):
+                    src_name = entry.source.title
+                articles.append({
+                    "title":    title,
+                    "source":   src_name,
+                    "date":     entry.get("published", ""),
+                    "url":      entry.get("link", ""),
+                    "category": src.get("category", "Général"),
+                    "image":    "",
+                })
+        except Exception:
+            pass
+    return articles
+
+
+@app.get("/api/briefing/feed")
+async def briefing_feed(refresh: bool = False):
+    import time, asyncio
+    sources  = settings.get("briefing.sources",  None) or _BRIEFING_DEFAULT_SOURCES
+    keywords = settings.get("briefing.keywords", [])
+    cache_key = "feed"
+    cached = _briefing_cache.get(cache_key)
+    if not refresh and cached and (time.time() - cached["ts"]) < _BRIEFING_TTL:
+        return cached["data"]
+    loop = asyncio.get_event_loop()
+    articles = await loop.run_in_executor(None, _briefing_fetch, sources, keywords)
+    _briefing_cache[cache_key] = {"ts": time.time(), "data": articles}
+    return articles
+
+
+@app.get("/api/briefing/config")
+async def briefing_config():
+    return {
+        "sources":  settings.get("briefing.sources",  None) or _BRIEFING_DEFAULT_SOURCES,
+        "keywords": settings.get("briefing.keywords", []),
+    }
+
+
+class _BriefingConfigBody(BaseModel):
+    sources:  list | None = None
+    keywords: list | None = None
+
+
+@app.put("/api/briefing/config")
+async def briefing_save_config(body: _BriefingConfigBody):
+    if body.sources  is not None: settings.set("briefing.sources",  body.sources)
+    if body.keywords is not None: settings.set("briefing.keywords", body.keywords)
+    _briefing_cache.clear()   # invalide le cache
+    return {"ok": True}
+
+
 @app.get("/api/memory/consolidated")
 async def memory_consolidated(days: int = 5):
     return memory_store.get_consolidated(days=days)
@@ -217,7 +716,7 @@ class MemorySearchRequest(BaseModel):
 async def memory_search(req: MemorySearchRequest):
     from datetime import datetime
     if req.query.strip():
-        items = memory_store.search(req.query, limit=50)
+        items = memory_store.search(req.query, limit=50, min_words=1)
     else:
         items = memory_store.recent(limit=50)
     for m in items:
@@ -341,12 +840,144 @@ async def page_infrastructure():
 
 
 # ---------------------------------------------------------------------------
+# Contrôle direct des entités domotiques
+# ---------------------------------------------------------------------------
+
+class _EntityToggle(BaseModel):
+    on: Optional[bool] = None   # None = toggle, True = allume, False = éteint
+
+@app.post("/api/entity/{entity_id}/toggle")
+async def entity_toggle(entity_id: str, body: _EntityToggle):
+    """Allume / éteint une entité domotique via le service unifié."""
+    import asyncio
+    from core.unified_entities import unified_entity_service
+    loop = asyncio.get_event_loop()
+    ok = await loop.run_in_executor(
+        None,
+        lambda: unified_entity_service.toggle_entity(entity_id, body.on)
+    )
+    return {"ok": ok, "entity_id": entity_id, "on": body.on}
+
+@app.post("/api/scene/{scene_name}")
+async def scene_activate(scene_name: str):
+    """Active une scène HA (scene.<scene_name>) ou tombe en silence si absente."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    ok = False
+    try:
+        from core.ha_control import ha_manager
+        ha_entity = f"scene.{scene_name}"
+        ok = await loop.run_in_executor(
+            None,
+            lambda: ha_manager.call_service("scene", "turn_on", ha_entity)
+        )
+    except Exception as e:
+        print(f"[scene_activate] {scene_name}: {e}")
+    return {"ok": ok, "scene": scene_name}
+
+
+# ---------------------------------------------------------------------------
 # Endpoints personnalisés (surveillance URLs custom)
 # ---------------------------------------------------------------------------
 
 class EndpointRequest(BaseModel):
     name: str
     url: str
+    tags: list[str] = ["local"]
+
+
+class EndpointTagsUpdate(BaseModel):
+    tags: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Paramètres ADA — CRUD complet
+# ---------------------------------------------------------------------------
+
+class SettingUpdate(BaseModel):
+    key: str
+    value: Any
+
+
+@app.get("/api/settings")
+async def get_settings_api():
+    """Renvoie tous les paramètres courants."""
+    from core.settings_store import settings as _s
+    return _s._settings
+
+
+@app.post("/api/settings")
+async def update_setting(req: SettingUpdate):
+    """Met à jour un paramètre par chemin pointé (ex: 'home_assistant.url')."""
+    from core.settings_store import settings as _s
+    _s.set(req.key, req.value)
+    return {"ok": True}
+
+
+@app.get("/api/ollama/models")
+async def get_ollama_models():
+    """Renvoie la liste des modèles Ollama installés."""
+    from core.settings_store import settings as _s
+    base = _s.get("ollama_url", "http://localhost:11434").rstrip("/")
+    if base.endswith("/api"):
+        base = base[:-4]
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{base}/api/tags")
+            if r.status_code == 200:
+                return [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        pass
+    return []
+
+
+class OllamaPullRequest(BaseModel):
+    name: str
+
+
+@app.post("/api/ollama/pull")
+async def ollama_pull(body: OllamaPullRequest):
+    """Pull un modèle Ollama. Retourne un SSE avec la progression."""
+    from core.settings_store import settings as _s
+    base = _s.get("ollama_url", "http://localhost:11434").rstrip("/")
+    if base.endswith("/api"):
+        base = base[:-4]
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nom du modèle requis")
+
+    async def _stream():
+        try:
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                async with client.stream(
+                    "POST", f"{base}/api/pull",
+                    json={"name": name, "stream": True}
+                ) as resp:
+                    async for line in resp.aiter_lines():
+                        if line:
+                            yield f"data: {line}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@app.delete("/api/ollama/models/{model_name:path}")
+async def ollama_delete_model(model_name: str):
+    """Supprime un modèle Ollama installé."""
+    from core.settings_store import settings as _s
+    base = _s.get("ollama_url", "http://localhost:11434").rstrip("/")
+    if base.endswith("/api"):
+        base = base[:-4]
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.request("DELETE", f"{base}/api/delete", json={"name": model_name})
+            if r.status_code in (200, 204):
+                return {"ok": True}
+            return {"ok": False, "detail": r.text}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/api/infra/endpoints")
@@ -358,8 +989,15 @@ async def list_custom_endpoints():
 @app.post("/api/infra/endpoints")
 async def add_custom_endpoint_api(req: EndpointRequest):
     from core.runtime_state import add_custom_endpoint
-    add_custom_endpoint(req.name.strip(), req.url.strip())
+    add_custom_endpoint(req.name.strip(), req.url.strip(), req.tags)
     return {"ok": True}
+
+
+@app.patch("/api/infra/endpoints/{name}/tags")
+async def update_endpoint_tags_api(name: str, req: EndpointTagsUpdate):
+    from core.runtime_state import update_endpoint_tags
+    ok = update_endpoint_tags(name, req.tags)
+    return {"ok": ok}
 
 
 @app.delete("/api/infra/endpoints/{name}")
@@ -367,6 +1005,83 @@ async def remove_custom_endpoint_api(name: str):
     from core.runtime_state import remove_custom_endpoint
     found = remove_custom_endpoint(name)
     return {"ok": found}
+
+
+class _ServiceHiddenBody(BaseModel):
+    hidden: bool
+
+
+class _ServiceTagsBody(BaseModel):
+    tags: list[str]
+
+
+class _UniverseBody(BaseModel):
+    universe: str = ''
+
+
+@app.get("/api/infra/services")
+async def list_infra_services():
+    """Retourne les services built-in avec statut, tags, hidden et universe."""
+    from core.runtime_state import runtime_state, _BUILTIN_SERVICES, _load_service_overrides
+    state = runtime_state.get_infra_summary()
+    svcs = state.get("services", {})
+    overrides = _load_service_overrides()
+    result = []
+    for name in _BUILTIN_SERVICES:
+        svc = svcs.get(name, {"status": "unknown", "details": ""})
+        ov = overrides.get(name, {})
+        result.append({
+            "name": name,
+            "status": svc.get("status", "unknown"),
+            "details": svc.get("details", ""),
+            "tags": ov.get("tags", ["local"]),
+            "hidden": ov.get("hidden", False),
+            "universe": ov.get("universe", ""),
+            "builtin": True,
+        })
+    return result
+
+
+@app.patch("/api/infra/services/{name}/hidden")
+async def update_service_hidden_api(name: str, body: _ServiceHiddenBody):
+    from core.runtime_state import update_service_hidden
+    update_service_hidden(name, body.hidden)
+    return {"ok": True}
+
+
+@app.patch("/api/infra/services/{name}/tags")
+async def update_service_tags_api(name: str, body: _ServiceTagsBody):
+    from core.runtime_state import update_service_tags
+    update_service_tags(name, body.tags)
+    return {"ok": True}
+
+
+@app.patch("/api/infra/services/{name}/universe")
+async def update_service_universe_api(name: str, body: _UniverseBody):
+    from core.runtime_state import update_service_universe
+    update_service_universe(name, body.universe)
+    return {"ok": True}
+
+
+@app.patch("/api/infra/endpoints/{name}/universe")
+async def update_endpoint_universe_api(name: str, body: _UniverseBody):
+    from core.runtime_state import update_endpoint_universe
+    ok = update_endpoint_universe(name, body.universe)
+    return {"ok": ok}
+
+
+@app.get("/api/infra/docker/universes")
+async def get_docker_universes():
+    """Retourne la map container_name → universe."""
+    from core.runtime_state import _load_docker_universe
+    return _load_docker_universe()
+
+
+@app.patch("/api/infra/docker/{name}/universe")
+async def update_docker_universe_api(name: str, body: _UniverseBody):
+    from core.runtime_state import update_docker_universe
+    update_docker_universe(name, body.universe)
+    return {"ok": True}
 
 
 @app.get("/api/page/memory")
@@ -884,3 +1599,171 @@ async def marketing_history_delete(entry_id: int):
     from core.marketing_executor import delete_history_entry
     delete_history_entry(entry_id)
     return {"ok": True}
+
+
+class _TagsBody(BaseModel):
+    tags: list[str]
+
+
+@app.patch("/api/marketing/history/{entry_id}/tags")
+async def marketing_history_tags(entry_id: int, req: _TagsBody):
+    from core.marketing_executor import update_history_tags
+    ok = update_history_tags(entry_id, req.tags)
+    return {"ok": ok}
+
+
+@app.get("/api/tags/available")
+async def get_available_tags():
+    """Retourne les tags disponibles : local + noms des societes."""
+    tags = ["local"]
+    try:
+        from core.societe.company_model import company_model
+        companies = company_model.list_companies()
+        tags += [c["id"] for c in companies if c.get("id")]
+    except Exception:
+        pass
+    return tags
+
+
+@app.get("/api/societe/companies/{company_id}/tagged-items")
+async def get_tagged_items(company_id: str):
+    """Retourne les endpoints infra + contenus marketing taggés avec company_id,
+    avec statut live depuis runtime_state."""
+    from core.runtime_state import _load_custom_endpoints, runtime_state
+    from core.marketing_executor import get_history
+    live_services = runtime_state.get_infra_summary().get("services", {})
+    raw_eps = [ep for ep in _load_custom_endpoints() if company_id in ep.get("tags", [])]
+    endpoints = [{**ep, "status": live_services.get(ep["name"], {}).get("status", "unknown"),
+                  "details": live_services.get(ep["name"], {}).get("details", "")} for ep in raw_eps]
+    marketing = [h for h in get_history(limit=200) if company_id in h.get("tags", [])]
+    return {"endpoints": endpoints, "marketing": marketing}
+
+
+# ---------------------------------------------------------------------------
+# MODULE_SKILLS: API AutoSkills (SQLite FTS5)
+# Préfixe /api/autoskills/ pour éviter le conflit avec /api/skills (SKILL.md)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/autoskills")
+async def api_skills_list(status: str = "active", domain: str | None = None):
+    """Liste les autoskills selon status (active|archived) et domaine optionnel."""
+    return {"skills": _skills_list(status=status, domain=domain)}
+
+
+@app.get("/api/autoskills/{skill_id}")
+async def api_skills_get(skill_id: str):
+    """Récupère une autoskill par ID."""
+    skill = _skills_get(skill_id)
+    if skill is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Skill introuvable")
+    return skill
+
+
+@app.post("/api/autoskills")
+async def api_skills_create(body: dict):
+    """Crée ou met à jour une autoskill."""
+    name = body.get("name", "").strip()
+    content = body.get("content", "").strip()
+    if not name or not content:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="name et content requis")
+    skill_id = _skills_save(
+        name=name,
+        content=content,
+        domain=body.get("domain", "core"),
+        source=body.get("source", "manual"),
+        summary=body.get("summary", ""),
+        priority=int(body.get("priority", 5)),
+        skill_id=body.get("id"),
+    )
+    return {"id": skill_id, "ok": True}
+
+
+@app.patch("/api/autoskills/{skill_id}/archive")
+async def api_skills_archive(skill_id: str):
+    """Archive une autoskill."""
+    ok = _skills_archive(skill_id)
+    return {"ok": ok}
+
+
+@app.patch("/api/autoskills/{skill_id}/restore")
+async def api_skills_restore(skill_id: str):
+    """Restaure une autoskill archivée."""
+    ok = _skills_restore(skill_id)
+    return {"ok": ok}
+
+
+@app.patch("/api/autoskills/{skill_id}/promote")
+async def api_skills_promote(skill_id: str, body: dict | None = None):
+    """Monte la priorité d'une autoskill."""
+    new_priority = (body or {}).get("priority")
+    ok = _skills_promote(skill_id, new_priority=new_priority)
+    return {"ok": ok}
+
+
+@app.delete("/api/autoskills/{skill_id}")
+async def api_skills_delete(skill_id: str):
+    """Supprime une autoskill (refusé si protégée)."""
+    ok = _skills_delete(skill_id)
+    if not ok:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Skill protégée ou introuvable")
+    return {"ok": True}
+
+
+@app.patch("/api/autoskills/{skill_id}")
+async def api_skills_update(skill_id: str, body: dict):
+    """Mise à jour partielle d'une autoskill (name, summary, content, priority, domain)."""
+    skill = _skills_get(skill_id)
+    if skill is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Skill introuvable")
+    updated_id = _skills_save(
+        skill_id=skill_id,
+        name=body.get("name", skill["name"]),
+        content=body.get("content", skill["content"]),
+        domain=body.get("domain", skill["domain"]),
+        source=skill.get("source", "manual"),
+        summary=body.get("summary", skill.get("summary", "")),
+        priority=int(body.get("priority", skill["priority"])),
+    )
+    return {"id": updated_id, "ok": True}
+
+
+@app.post("/api/autoskills/{skill_id}/feedback")
+async def api_skills_feedback(skill_id: str, body: dict):
+    """Enregistre un feedback utilisateur sur une autoskill."""
+    feedback = body.get("feedback", "").strip()
+    if feedback not in ("positive", "negative", "neutral"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="feedback doit être positive|negative|neutral")
+    from core.skills import get_skill
+    skill = get_skill(skill_id)
+    if skill is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Skill introuvable")
+    # Feedback positif → record_success (incrémente usage + auto-promotion)
+    if feedback == "positive":
+        from core.skills import record_success
+        record_success(skill_id)
+    # Stocker dans autoskill_feedback
+    try:
+        from core.skills.skills_db import get_connection
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO autoskill_feedback (skill_id, session_id, request_id, feedback, reason) VALUES (?,?,?,?,?)",
+            (skill_id, body.get("session_id"), body.get("request_id"), feedback, body.get("reason", "")),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return {"ok": True, "feedback": feedback}
+
+
+@app.post("/api/autoskills/maintenance")
+async def api_skills_maintenance():
+    """Lance la maintenance manuelle des autoskills."""
+    result = _skills_maintenance()
+    return result

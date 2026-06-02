@@ -17,11 +17,14 @@ from config import OLLAMA_URL, RESPONDER_MODEL
 from core.memory_store import memory_store
 from core.settings_store import settings
 
-_SYSTEM_PROMPT = """\
-Tu es ADA, une assistante IA. Tu génères un briefing matinal concis et agréable pour Jeff.
-Utilise des emojis appropriés, sois chaleureuse et directe.
-Structure : salutation personnalisée + météo + 3-4 actualités importantes + rappel mémoire si pertinent + mot motivant.
-Maximum 250 mots. Réponds uniquement en français."""
+def _system_prompt() -> str:
+    name = settings.get("user.name", "vous")
+    return (
+        f"Tu es ADA, une assistante IA. Tu génères un briefing matinal concis et agréable pour {name}.\n"
+        "Utilise des emojis appropriés, sois chaleureuse et directe.\n"
+        "Structure : salutation personnalisée + météo + 3-4 actualités importantes + rappel mémoire si pertinent + mot motivant.\n"
+        "Maximum 250 mots. Réponds uniquement en français."
+    )
 
 
 def _f_to_c(f: float) -> float:
@@ -97,7 +100,7 @@ def generate_briefing() -> str:
     prompt = (
         f"Nous sommes le {date_str} à {now.strftime('%H:%M')}.\n\n"
         f"Données :\n{context}\n\n"
-        f"Génère le briefing matinal pour Jeff."
+        f"Génère le briefing matinal pour {settings.get('user.name', 'moi')}."
     )
 
     try:
@@ -106,7 +109,7 @@ def generate_briefing() -> str:
             json={
                 "model": RESPONDER_MODEL,
                 "messages": [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "system", "content": _system_prompt()},
                     {"role": "user", "content": prompt},
                 ],
                 "stream": False,
