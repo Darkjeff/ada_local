@@ -774,6 +774,9 @@ async def page_home():
         lambda: unified_entity_service.get_unified_entities(force_refresh=True),
     )
 
+    # Exclure les entités caméra — elles ont leur propre vue dédiée
+    _EXCLUDED_TYPES = frozenset({"camera"})
+
     serialized = [
         {
             "id":       e.id,
@@ -789,6 +792,7 @@ async def page_home():
             },
         }
         for e in entities
+        if e.type not in _EXCLUDED_TYPES
     ]
 
     # Statuts providers : cross-référencer avec runtime_state (HA, Domoticz)
