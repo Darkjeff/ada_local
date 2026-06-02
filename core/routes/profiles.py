@@ -64,10 +64,12 @@ def initialize() -> None:
         );
         """)
 
-        # Migration devices si colonne absente
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(devices)").fetchall()]
-        if "profile_id" not in cols:
-            conn.execute("ALTER TABLE devices ADD COLUMN profile_id TEXT")
+        # Migration devices si table et colonne absentes
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        if "devices" in tables:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(devices)").fetchall()]
+            if "profile_id" not in cols:
+                conn.execute("ALTER TABLE devices ADD COLUMN profile_id TEXT")
 
     conn.close()
     _seed_modules()
