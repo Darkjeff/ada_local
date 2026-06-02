@@ -415,12 +415,28 @@ _VISION_KEYWORDS = re.compile(
 )
 
 
+_LIGHT_ACTION_WORDS = (
+    "allume", "eteins", "éteins", "etein", "étein",
+    "allumer", "eteindre", "éteindre",
+    "coupe", "couper", "baisse", "baisser", "augmente", "augmenter",
+)
+_LIGHT_NOUNS = ("lumiere", "lumière", "lumieres", "lumières", "lampe", "lampes", "led")
+
+
 def get_route(prompt: str) -> str:
     """
     Route a prompt to one of the VALID_ROUTES.
     Public interface — identical signature to the previous keyword router.
     """
-    # Vision guard first — "regarde le bureau" must not bleed into function_gemma
+    p_lower = prompt.lower()
+
+    # Pré-garde lumière : si le message contient un verbe d'action ET un mot lumière
+    # → function_gemma immédiatement, avant tout (évite le drift embedding sur "bureau")
+    words = set(re.split(r"\W+", p_lower))
+    if words & set(_LIGHT_ACTION_WORDS) and words & set(_LIGHT_NOUNS):
+        return "function_gemma"
+
+    # Vision guard — "regarde le bureau" must not bleed into function_gemma
     if _VISION_KEYWORDS.search(prompt):
         return "vision"
     # Fast keyword guard for music commands — beats embedding drift
