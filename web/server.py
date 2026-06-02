@@ -33,6 +33,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse as _JSONResponse
 from starlette.types import ASGIApp as _ASGIApp
 
+from core.ha_control import ha_manager
 from core.memory_store import memory_store
 from core.runtime_state import runtime_state
 from core.skill_manager import skill_manager
