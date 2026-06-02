@@ -263,15 +263,15 @@ class HAManager:
     def get_camera_snapshot(self, entity_id: str) -> bytes | None:
         """GET /api/camera_proxy/{entity_id} — returns raw image bytes or None."""
         if not self._url or not self._token:
+            print(f"[HAManager] camera snapshot skipped: url={bool(self._url)} token={bool(self._token)}")
             return None
         try:
-            resp = requests.get(
-                f"{self._url}/api/camera_proxy/{entity_id}",
-                headers=self._headers(),
-                timeout=10,
-            )
-            if resp.status_code == 200:
+            url = f"{self._url}/api/camera_proxy/{entity_id}"
+            resp = requests.get(url, headers=self._headers(), timeout=10)
+            print(f"[HAManager] camera snapshot {entity_id} → {resp.status_code} ({len(resp.content)} bytes)")
+            if resp.status_code == 200 and resp.content:
                 return resp.content
+            print(f"[HAManager] camera snapshot {entity_id} body: {resp.text[:200]}")
         except Exception as e:
             print(f"[HAManager] camera snapshot {entity_id} failed: {e}")
         return None
