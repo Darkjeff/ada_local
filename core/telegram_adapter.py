@@ -11,12 +11,60 @@ Architecture:
 
 import base64
 import json
+import re
 import threading
 import time
 from datetime import datetime
 from typing import Optional
 
 import requests
+
+# ── Fast-path lumière (bypass Ollama) ────────────────────────────────────────
+_LIGHT_ON_KW  = frozenset({
+    "allume", "allumer", "active", "activer", "mets", "ouvre", "on", "tourne",
+})
+_LIGHT_OFF_KW = frozenset({
+    "éteins", "eteins", "éteindre", "eteindre", "coupe", "couper", "off",
+    "ferme", "fermer", "éteint", "eteint",
+})
+_LIGHT_KW_RE  = re.compile(r"lumi[eèé]re?", re.I)
+_ROOM_PREP_RE = re.compile(
+    r"(?:du|de\s+la|de\s+l['''\s]|dans\s+le|dans\s+la|dans\s+l['''\s]|au|à)\s*(\w+)",
+    re.I,
+)
+_SKIP_WORDS = frozenset({
+    "la", "le", "les", "du", "de", "des", "l", "un", "une",
+    "dans", "au", "aux", "en", "et", "ou", "lumi", "lumiere", "lumière",
+})
+
+
+def _parse_light_cmd(text: str):
+    """Return (action, room) si c'est une commande lumière, sinon None."""
+    t = text.lower().strip()
+    if not _LIGHT_KW_RE.search(t):
+        return None
+    words = re.sub(r"['''\-]", " ", t).split()
+    action = None
+    for w in words:
+        w = w.strip(".,!?;:")
+        if w in _LIGHT_ON_KW:
+            action = "on"
+            break
+        if w in _LIGHT_OFF_KW:
+            action = "off"
+            break
+    if action is None:
+        return None
+    m = _ROOM_PREP_RE.search(t)
+    if m:
+        return action, m.group(1)
+    parts = _LIGHT_KW_RE.split(t, maxsplit=1)
+    after = parts[-1] if len(parts) > 1 else ""
+    candidates = [
+        w.strip(".,!?;: ") for w in after.split()
+        if w.strip(".,!?;: ") not in _SKIP_WORDS and w.strip(".,!?;: ")
+    ]
+    return action, (candidates[0] if candidates else "all")
 
 from config import OLLAMA_URL, RESPONDER_MODEL, FUNCTIONS
 from core.memory_store import memory_store
@@ -242,6 +290,21 @@ class TelegramAdapter:
             from core.runtime_state import runtime_state
             runtime_state.refresh()
             self._send(chat_id, runtime_state.format_infra_status_fr())
+            return
+
+        # ── Fast-path lumière (bypass LLM entièrement) ──
+        light_cmd = _parse_light_cmd(text_lower)
+        if light_cmd:
+            action, room = light_cmd
+            print(f"[Telegram] Fast-path → control_light action={action} room={room}")
+            res = function_executor.execute("control_light", {"action": action, "room": room})
+            if res.get("success"):
+                icon = "💡" if action == "on" else "🌑"
+                label = "allumée" if action == "on" else "éteinte"
+                self._send(chat_id, f"{icon} Lumière *{room}* {label}.",
+                           parse_mode="Markdown")
+            else:
+                self._send(chat_id, f"⚠️ {res.get('message', 'Erreur contrôle lumière.')}")
             return
 
         with self._lock:
